@@ -7,11 +7,13 @@ import os
 import json
 
 from tqdm import tqdm
+from itertools import chain
 
+image_format = ['jpeg', 'jpg', 'png', 'webp']
 
 def main(args):
-  image_paths = glob.glob(os.path.join(args.train_data_dir, "*.jpg")) + \
-      glob.glob(os.path.join(args.train_data_dir, "*.png")) + glob.glob(os.path.join(args.train_data_dir, "*.webp"))
+  image_paths = list(chain(
+        *[glob.glob(os.path.join(args.train_data_dir, f"*.{f}")) for f in image_format]))
   print(f"found {len(image_paths)} images.")
 
   if args.in_json is None and os.path.isfile(args.out_json):
@@ -28,7 +30,7 @@ def main(args):
 
   print("merge tags to metadata json.")
   for image_path in tqdm(image_paths):
-    tags_path = os.path.splitext(image_path)[0] + '.txt'
+    tags_path = os.path.splitext(image_path)[0] + args.caption_extension
     with open(tags_path, "rt", encoding='utf-8') as f:
       tags = f.readlines()[0].strip()
 
@@ -55,6 +57,7 @@ if __name__ == '__main__':
   parser.add_argument("--full_path", action="store_true",
                       help="use full path as image-key in metadata (supports multiple directories) / メタデータで画像キーをフルパスにする（複数の学習画像ディレクトリに対応）")
   parser.add_argument("--debug", action="store_true", help="debug mode, print tags")
+  parser.add_argument("--caption_extension", type=str, default='.txt', help="")
 
   args = parser.parse_args()
   main(args)
