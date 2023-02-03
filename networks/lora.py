@@ -98,7 +98,7 @@ class LoRANetwork(torch.nn.Module):
     self.alpha = alpha
 
     # create module instances
-    def create_modules(prefix, root_module: torch.nn.Module, target_replace_modules) -> list[LoRAModule]:
+    def create_modules(prefix, root_module: torch.nn.Module, target_replace_modules):
       loras = []
       for name, module in root_module.named_modules():
         if module.__class__.__name__ in target_replace_modules:
