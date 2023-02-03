@@ -44,7 +44,7 @@ DEFAULT_LAST_OUTPUT_NAME = "last"
 
 # region dataset
 
-IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp"]
+IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".npz"]
 
 
 class ImageInfo():
