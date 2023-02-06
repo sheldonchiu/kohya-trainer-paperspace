@@ -7,10 +7,11 @@ import random
 from PIL import Image
 from tqdm import tqdm
 import numpy as np
+from blip.blip import blip_decoder
 import torch
 from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
-from blip.blip import blip_decoder
+
 import library.train_util as train_util
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -78,7 +79,7 @@ def main(args):
   print(f"Need to process {len(image_paths)} images.")
 
   print(f"loading BLIP caption: {args.caption_weights}")
-  model = blip_decoder(pretrained=args.caption_weights, image_size=IMAGE_SIZE, vit='large', med_config="./blip/med_config.json")
+  model = blip_decoder(pretrained=args.caption_weights, image_size=IMAGE_SIZE, vit='large', med_config=os.path.join(os.path.dirname(os.path.abspath(__file__)), "blip/med_config.json"))
   model.eval()
   model = model.to(DEVICE)
   print("BLIP loaded")
