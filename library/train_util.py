@@ -44,7 +44,7 @@ DEFAULT_LAST_OUTPUT_NAME = "last"
 
 # region dataset
 
-IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".npz"]
+IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp"]
 
 
 class ImageInfo():
@@ -87,6 +87,7 @@ class BaseDataset(torch.utils.data.Dataset):
     self.enable_bucket = False
     self.min_bucket_reso = None
     self.max_bucket_reso = None
+    self.tag_frequency = {}
     self.bucket_info = None
 
     self.tokenizer_max_length = self.tokenizer.model_max_length if max_token_length is None else max_token_length + 2
@@ -115,6 +116,16 @@ class BaseDataset(torch.utils.data.Dataset):
 
     self.replacements = {}
 
+  def set_tag_frequency(self, dir_name, captions):
+    frequency_for_dir = self.tag_frequency.get(dir_name, {})
+    self.tag_frequency[dir_name] = frequency_for_dir
+    for caption in captions:
+      for tag in caption.split(","):
+        if tag and not tag.isspace():
+          tag = tag.lower()
+          frequency = frequency_for_dir.get(tag, 0)
+          frequency_for_dir[tag] = frequency + 1
+
   def disable_token_padding(self):
     self.token_padding_disabled = True
 
@@ -140,7 +151,7 @@ class BaseDataset(torch.utils.data.Dataset):
         if type(str_to) == list:
           caption = random.choice(str_to)
         else:
-          caption = str_to                                      
+          caption = str_to
       else:
         caption = caption.replace(str_from, str_to)
 
@@ -246,7 +257,6 @@ class BaseDataset(torch.utils.data.Dataset):
       mean_img_ar_error = np.mean(np.abs(img_ar_errors))
       self.bucket_info["mean_img_ar_error"] = mean_img_ar_error
       print(f"mean ar error (without repeats): {mean_img_ar_error}")
-      
 
     # 参照用indexを作る
     self.buckets_indices: list(BucketBatchIndex) = []
@@ -545,6 +555,8 @@ class DreamBoothDataset(BaseDataset):
         cap_for_img = read_caption(img_path)
         captions.append(caption_by_folder if cap_for_img is None else cap_for_img)
 
+      self.set_tag_frequency(os.path.basename(dir), captions)         # タグ頻度を記録
+
       return n_repeats, img_paths, captions
 
     print("prepare train images.")
@@ -553,10 +565,13 @@ class DreamBoothDataset(BaseDataset):
     for dir in train_dirs:
       n_repeats, img_paths, captions = load_dreambooth_dir(os.path.join(train_data_dir, dir))
       num_train_images += n_repeats * len(img_paths)
+
       for img_path, caption in zip(img_paths, captions):
         info = ImageInfo(img_path, n_repeats, caption, False, img_path)
         self.register_image(info)
+
       self.dataset_dirs_info[os.path.basename(dir)] = {"n_repeats": n_repeats, "img_count": len(img_paths)}
+
     print(f"{num_train_images} train images with repeating.")
     self.num_train_images = num_train_images
 
@@ -570,9 +585,11 @@ class DreamBoothDataset(BaseDataset):
       for dir in reg_dirs:
         n_repeats, img_paths, captions = load_dreambooth_dir(os.path.join(reg_data_dir, dir))
         num_reg_images += n_repeats * len(img_paths)
+
         for img_path, caption in zip(img_paths, captions):
           info = ImageInfo(img_path, n_repeats, caption, True, img_path)
           reg_infos.append(info)
+
         self.reg_dataset_dirs_info[os.path.basename(dir)] = {"n_repeats": n_repeats, "img_count": len(img_paths)}
 
       print(f"{num_reg_images} reg images.")
@@ -617,6 +634,7 @@ class FineTuningDataset(BaseDataset):
     self.train_data_dir = train_data_dir
     self.batch_size = batch_size
 
+    tags_list = []
     for image_key, img_md in metadata.items():
       # path情報を作る
       if os.path.exists(image_key):
@@ -633,6 +651,7 @@ class FineTuningDataset(BaseDataset):
         caption = tags
       elif tags is not None and len(tags) > 0:
         caption = caption + ', ' + tags
+        tags_list.append(tags)
       assert caption is not None and len(caption) > 0, f"caption or tag is required / キャプションまたはタグは必須です:{abs_path}"
 
       image_info = ImageInfo(image_key, dataset_repeats, caption, False, abs_path)
@@ -646,7 +665,8 @@ class FineTuningDataset(BaseDataset):
     self.num_train_images = len(metadata) * dataset_repeats
     self.num_reg_images = 0
 
-    self.dataset_dirs_info[os.path.basename(self.train_data_dir)] = {"n_repeats": dataset_repeats, "img_count": len(metadata)}
+    self.set_tag_frequency(os.path.basename(json_file_name), tags_list)
+    self.dataset_dirs_info[os.path.basename(json_file_name)] = {"n_repeats": dataset_repeats, "img_count": len(metadata)}
 
     # check existence of all npz files
     if not self.color_aug:
@@ -667,6 +687,8 @@ class FineTuningDataset(BaseDataset):
         print(f"npz file does not exist. make latents with VAE / npzファイルが見つからないためVAEを使ってlatentsを取得します")
       elif not npz_all:
         print(f"some of npz file does not exist. ignore npz files / いくつかのnpzファイルが見つからないためnpzファイルを無視します")
+        if self.flip_aug:
+          print("maybe no flipped files / 反転されたnpzファイルがないのかもしれません")
         for image_info in self.image_data.values():
           image_info.latents_npz = image_info.latents_npz_flipped = None
 
@@ -747,7 +769,8 @@ def debug_dataset(train_dataset, show_input_ids=False):
         im = ((im.numpy() + 1.0) * 127.5).astype(np.uint8)
         im = np.transpose(im, (1, 2, 0))                # c,H,W -> H,W,c
         im = im[:, :, ::-1]                             # RGB -> BGR (OpenCV)
-        cv2.imshow("img", im)
+        if os.name == 'nt':                             # only windows
+          cv2.imshow("img", im)
         k = cv2.waitKey()
         cv2.destroyAllWindows()
         if k == 27:
@@ -756,14 +779,29 @@ def debug_dataset(train_dataset, show_input_ids=False):
       break
 
 
-def glob_images(dir, base):
+def glob_images(directory, base="*"):
   img_paths = []
   for ext in IMAGE_EXTENSIONS:
     if base == '*':
-      img_paths.extend(glob.glob(os.path.join(glob.escape(dir), base + ext)))
+      img_paths.extend(glob.glob(os.path.join(glob.escape(directory), base + ext)))
     else:
-      img_paths.extend(glob.glob(glob.escape(os.path.join(dir, base + ext))))
+      img_paths.extend(glob.glob(glob.escape(os.path.join(directory, base + ext))))
+  # img_paths = list(set(img_paths))                    # 重複を排除
+  # img_paths.sort()
   return img_paths
+
+
+def glob_images_pathlib(dir_path, recursive):
+  image_paths = []
+  if recursive:
+    for ext in IMAGE_EXTENSIONS:
+      image_paths += list(dir_path.rglob('*' + ext))
+  else:
+    for ext in IMAGE_EXTENSIONS:
+      image_paths += list(dir_path.glob('*' + ext))
+  # image_paths = list(set(image_paths))        # 重複を排除
+  # image_paths.sort()
+  return image_paths
 
 # endregion
 
@@ -1154,6 +1192,8 @@ def add_training_arguments(parser: argparse.ArgumentParser, support_dreambooth: 
                       help="training epochs (overrides max_train_steps) / 学習エポック数（max_train_stepsを上書きします）")
   parser.add_argument("--max_data_loader_n_workers", type=int, default=8,
                       help="max num workers for DataLoader (lower is less main RAM usage, faster epoch start and slower data loading) / DataLoaderの最大プロセス数（小さい値ではメインメモリの使用量が減りエポック間の待ち時間が減りますが、データ読み込みは遅くなります）")
+  parser.add_argument("--persistent_data_loader_workers", action="store_true",
+                      help="persistent DataLoader workers (useful for reduce time gap between epoch, but may use more memory) / DataLoader のワーカーを持続させる (エポック間の時間差を少なくするのに有効だが、より多くのメモリを消費する可能性がある)")
   parser.add_argument("--seed", type=int, default=None, help="random seed for training / 学習時の乱数のseed")
   parser.add_argument("--gradient_checkpointing", action="store_true",
                       help="enable gradient checkpointing / grandient checkpointingを有効にする")
@@ -1494,6 +1534,31 @@ def save_state_on_train_end(args: argparse.Namespace, accelerator):
   os.makedirs(args.output_dir, exist_ok=True)
   model_name = DEFAULT_LAST_OUTPUT_NAME if args.output_name is None else args.output_name
   accelerator.save_state(os.path.join(args.output_dir, LAST_STATE_NAME.format(model_name)))
+
+# endregion
+
+# region 前処理用
+
+
+class ImageLoadingDataset(torch.utils.data.Dataset):
+  def __init__(self, image_paths):
+    self.images = image_paths
+
+  def __len__(self):
+    return len(self.images)
+
+  def __getitem__(self, idx):
+    img_path = self.images[idx]
+
+    try:
+      image = Image.open(img_path).convert("RGB")
+      # convert to tensor temporarily so dataloader will accept it
+      tensor_pil = transforms.functional.pil_to_tensor(image)
+    except Exception as e:
+      print(f"Could not load image path / 画像を読み込めません: {img_path}, error: {e}")
+      return None
+
+    return (tensor_pil, img_path)
 
 
 # endregion
