@@ -1,64 +1,7 @@
 This repository contains training, generation and utility scripts for Stable Diffusion.
 
-## Updates
-
-__Stable Diffusion web UI now seems to support LoRA trained by ``sd-scripts``.__ Thank you for great work!!! 
-
-Note: The LoRA models for SD 2.x is not supported too in Web UI.
-
-- 4 Feb. 2023, 2023/2/4
-  - ``--persistent_data_loader_workers`` option is added to ``fine_tune.py``, ``train_db.py`` and ``train_network.py``. This option may significantly reduce the waiting time between epochs. Thanks to hitomi!
-  - ``--debug_dataset`` option is now working on non-Windows environment. Thanks to tsukimiya!
-  - ``networks/resize_lora.py`` script is added. This can approximate the higher-rank (dim) LoRA model by a lower-rank LoRA model, e.g. 128 by 4. Thanks to mgz-dev!
-    - ``--help`` option shows usage.
-    - Currently the metadata is not copied. This will be fixed in the near future.
-  -  ``--persistent_data_loader_workers``オプションが ``fine_tune.py``、 ``train_db.py``、``train_network.py``の各スクリプトに追加されました。このオプションを指定するとエポック間の待ち時間が大幅に短縮される可能性があります。hitomi氏に感謝します。
-  - ``--debug_dataset``オプションがWindows環境以外でも動くようになりました。tsukimiya氏に感謝します。
-  - ``networks/resize_lora.py``スクリプトを追加しました。高rankのLoRAモデルを低rankのLoRAモデルで近似します（つまり128 rank (dim)のLoRAに似た、4 rank (dim)のLoRAを作ることができます）。mgz-dev氏に感謝します。
-    - 使い方は``--help``オプションを指定して参照してください。
-    - 現時点ではメタデータはコピーされません。近日中に対応予定です。
-- 3 Feb. 2023, 2023/2/3
-  - Update finetune preprocessing scripts.
-    - ``.bmp`` and ``.jpeg`` are supported. Thanks to breakcore2 and p1atdev!
-    - The default weights of ``tag_images_by_wd14_tagger.py`` is now ``SmilingWolf/wd-v1-4-convnext-tagger-v2``. You can specify another model id from ``SmilingWolf`` by ``--repo_id`` option. Thanks to SmilingWolf for the great work.
-      - To change the weight, remove ``wd14_tagger_model`` folder, and run the script again.
-    - ``--max_data_loader_n_workers`` option is added to each script. This option uses the DataLoader for data loading to speed up loading, 20%~30% faster.
-      - Please specify 2 or 4, depends on the number of CPU cores.
-    - ``--recursive`` option is added to ``merge_dd_tags_to_metadata.py`` and ``merge_captions_to_metadata.py``, only works with ``--full_path``.
-    - ``make_captions_by_git.py`` is added. It uses [GIT microsoft/git-large-textcaps](https://huggingface.co/microsoft/git-large-textcaps) for captioning. 
-      - ``requirements.txt`` is updated. If you use this script, [please update the libraries](https://github.com/kohya-ss/sd-scripts#upgrade).
-      - Usage is almost the same as ``make_captions.py``, but batch size should be smaller.
-      - ``--remove_words`` option removes as much text as possible (such as ``the word "XXXX" on it``).
-    - ``--skip_existing`` option is added to ``prepare_buckets_latents.py``. Images with existing npz files are ignored by this option.
-    - ``clean_captions_and_tags.py`` is updated to remove duplicated or conflicting tags, e.g. ``shirt`` is removed when ``white shirt`` exists. if ``black hair`` is with ``red hair``, both are removed.
-  - Tag frequency is added to the metadata in ``train_network.py``. Thanks to space-nuko!
-    - __All tags and number of occurrences of the tag are recorded.__ If you do not want it, disable metadata storing with ``--no_metadata`` option.
-  
-  - fine tuning用の前処理スクリプト群を更新しました。
-    - 拡張子 ``.bmp`` と ``.jpeg`` をサポートしました。breakcore2氏およびp1atdev氏に感謝します。
-    - ``tag_images_by_wd14_tagger.py`` のデフォルトの重みを ``SmilingWolf/wd-v1-4-convnext-tagger-v2`` に更新しました。他の ``SmilingWolf`` 氏の重みも ``--repo_id`` オプションで指定可能です。SmilingWolf氏に感謝します。
-      - 重みを変更するときには ``wd14_tagger_model`` フォルダを削除してからスクリプトを再実行してください。
-    - ``--max_data_loader_n_workers`` オプションが各スクリプトに追加されました。DataLoaderを用いることで読み込み処理を並列化し、処理を20~30%程度高速化します。
-      - CPUのコア数に応じて2~4程度の値を指定してください。
-    - ``--recursive`` オプションを ``merge_dd_tags_to_metadata.py`` と ``merge_captions_to_metadata.py`` に追加しました。``--full_path`` を指定したときのみ使用可能です。
-    - ``make_captions_by_git.py`` を追加しました。[GIT microsoft/git-large-textcaps](https://huggingface.co/microsoft/git-large-textcaps) を用いてキャプションニングを行います。
-      - ``requirements.txt`` が更新されていますので、[ライブラリをアップデート](https://github.com/kohya-ss/sd-scripts/blob/main/README-ja.md#%E3%82%A2%E3%83%83%E3%83%97%E3%82%B0%E3%83%AC%E3%83%BC%E3%83%89)してください。
-      - 使用法は ``make_captions.py``とほぼ同じですがバッチサイズは小さめにしてください。
-      - ``--remove_words`` オプションを指定するとテキスト読み取りを可能な限り削除します（``the word "XXXX" on it``のようなもの）。    
-    - ``--skip_existing`` を ``prepare_buckets_latents.py`` に追加しました。すでにnpzファイルがある画像の処理をスキップします。
-    - ``clean_captions_and_tags.py``を重複タグや矛盾するタグを削除するよう機能追加しました。例：``white shirt`` タグがある場合、 ``shirt`` タグは削除されます。また``black hair``と``red hair``の両方がある場合、両方とも削除されます。
-  - ``train_network.py``で使用されているタグと回数をメタデータに記録するようになりました。space-nuko氏に感謝します。
-    - __すべてのタグと回数がメタデータに記録されます__ 望まない場合には``--no_metadata option``オプションでメタデータの記録を停止してください。
-    
-
-Stable Diffusion web UI本体で当リポジトリで学習したLoRAモデルによる画像生成がサポートされたようです。
-
-注：SD2.x用のLoRAモデルはサポートされないようです。
-
-Please read [Releases](https://github.com/kohya-ss/sd-scripts/releases) for recent updates.
-最近の更新情報は [Release](https://github.com/kohya-ss/sd-scripts/releases) をご覧ください。
-
-##
+[__Change History__](#change-history) is moved to the bottom of the page.
+更新履歴は[ページ末尾](#change-history)に移しました。
 
 [日本語版README](./README-ja.md)
 
@@ -67,10 +10,13 @@ For easier use (GUI and PowerShell scripts etc...), please visit [the repository
 This repository contains the scripts for:
 
 * DreamBooth training, including U-Net and Text Encoder
-* fine-tuning (native training), including U-Net and Text Encoder
+* Fine-tuning (native training), including U-Net and Text Encoder
 * LoRA training
-* image generation
-* model conversion (supports 1.x and 2.x, Stable Diffision ckpt/safetensors and Diffusers)
+* Texutl Inversion training
+* Image generation
+* Model conversion (supports 1.x and 2.x, Stable Diffision ckpt/safetensors and Diffusers)
+
+__Stable Diffusion web UI now seems to support LoRA trained by ``sd-scripts``.__ (SD 1.x based only) Thank you for great work!!! 
 
 ## About requirements.txt
 
@@ -157,7 +103,7 @@ When a new release comes out you can upgrade your repo with the following comman
 cd sd-scripts
 git pull
 .\venv\Scripts\activate
-pip install --upgrade -r requirements.txt
+pip install --use-pep517 --upgrade -r requirements.txt
 ```
 
 Once the commands have completed successfully you should be ready to use the new version.
@@ -175,3 +121,83 @@ The majority of scripts is licensed under ASL 2.0 (including codes from Diffuser
 [bitsandbytes](https://github.com/TimDettmers/bitsandbytes): MIT
 
 [BLIP](https://github.com/salesforce/BLIP): BSD-3-Clause
+
+## Change History
+
+- 11 Feb. 2023, 2023/2/11:
+  - ``lora_interrogator.py`` is added in ``networks`` folder. See ``python networks\lora_interrogator.py -h`` for usage.
+    - For LoRAs where the activation word is unknown, this script compares the output of Text Encoder after applying LoRA to that of unapplied to find out which token is affected by LoRA. Hopefully you can figure out the activation word. LoRA trained with captions does not seem to be able to interrogate.
+    - Batch size can be large (like 64 or 128).
+  - ``train_textual_inversion.py`` now supports multiple init words.
+  - Following feature is reverted to be the same as before. Sorry for confusion:
+    > Now the number of data in each batch is limited to the number of actual images (not duplicated). Because a certain bucket may contain smaller number of actual images, so the batch may contain same (duplicated) images.
+  
+  - ``lora_interrogator.py`` を ``network``フォルダに追加しました。使用法は ``python networks\lora_interrogator.py -h`` でご確認ください。
+    - このスクリプトは、起動promptがわからないLoRAについて、LoRA適用前後のText Encoderの出力を比較することで、どのtokenの出力が変化しているかを調べます。運が良ければ起動用の単語が分かります。キャプション付きで学習されたLoRAは影響が広範囲に及ぶため、調査は難しいようです。
+    - バッチサイズはわりと大きくできます（64や128など）。
+  - ``train_textual_inversion.py`` で複数のinit_word指定が可能になりました。
+  - 次の機能を削除し元に戻しました。混乱を招き申し訳ありません。
+    >  これらのオプションによりbucketが細分化され、ひとつのバッチ内に同一画像が重複して存在することが増えたため、バッチサイズを``そのbucketの画像種類数``までに制限する機能を追加しました。
+
+- 10 Feb. 2023, 2023/2/10:
+  - Updated ``requirements.txt`` to prevent upgrading with pip taking a long time or failure to upgrade.
+  - ``resize_lora.py`` keeps the metadata of the model. ``dimension is resized from ...`` is added to the top of  ``ss_training_comment``.
+  - ``merge_lora.py`` supports models with different ``alpha``s. If there is a problem, old version is ``merge_lora_old.py``.
+  - ``svd_merge_lora.py`` is added. This script merges LoRA models with any rank (dim) and alpha, and approximate a new LoRA with svd for a specified rank (dim).
+  - Note: merging scripts erase the metadata currently.
+  - ``resize_images_to_resolution.py`` supports multibyte characters in filenames.
+  - pipでの更新が長時間掛かったり、更新に失敗したりするのを防ぐため、``requirements.txt``を更新しました。
+  - ``resize_lora.py``がメタデータを保持するようになりました。 ``dimension is resized from ...`` という文字列が ``ss_training_comment`` の先頭に追加されます。
+  - ``merge_lora.py``がalphaが異なるモデルをサポートしました。 何か問題がありましたら旧バージョン ``merge_lora_old.py`` をお使いください。
+  - ``svd_merge_lora.py`` を追加しました。 複数の任意のdim (rank)、alphaのLoRAモデルをマージし、svdで任意dim(rank)のLoRAで近似します。 
+  - 注：マージ系のスクリプトは現時点ではメタデータを消去しますのでご注意ください。
+  - ``resize_images_to_resolution.py``が日本語ファイル名をサポートしました。
+  
+- 9 Feb. 2023, 2023/2/9:
+  - Caption dropout is supported in ``train_db.py``, ``fine_tune.py`` and ``train_network.py``. Thanks to forestsource!
+    - ``--caption_dropout_rate`` option specifies the dropout rate for captions (0~1.0, 0.1 means 10% chance for dropout). If dropout occurs, the image is trained with the empty caption. Default is 0 (no dropout).
+    - ``--caption_dropout_every_n_epochs`` option specifies how many epochs to drop captions. If ``3`` is specified, in epoch 3, 6, 9 ..., images are trained with all captions empty. Default is None (no dropout).
+    - ``--caption_tag_dropout_rate`` option specified the dropout rate for tags (comma separated tokens) (0~1.0, 0.1 means 10% chance for dropout). If dropout occurs, the tag is removed from the caption. If ``--keep_tokens`` option is set, these tokens (tags) are not dropped. Default is 0 (no droupout).
+    - The bulk image downsampling script is added. Documentation is [here](https://github.com/kohya-ss/sd-scripts/blob/main/train_network_README-ja.md#%E7%94%BB%E5%83%8F%E3%83%AA%E3%82%B5%E3%82%A4%E3%82%BA%E3%82%B9%E3%82%AF%E3%83%AA%E3%83%97%E3%83%88) (in Jpanaese). Thanks to bmaltais!
+    - Typo check is added. Thanks to shirayu!
+  - キャプションのドロップアウトを``train_db.py``、``fine_tune.py``、``train_network.py``の各スクリプトに追加しました。forestsource氏に感謝します。
+    - ``--caption_dropout_rate``オプションでキャプションのドロップアウト率を指定します（0~1.0、 0.1を指定すると10%の確率でドロップアウト）。ドロップアウトされた場合、画像は空のキャプションで学習されます。デフォルトは 0 （ドロップアウトなし）です。
+    - ``--caption_dropout_every_n_epochs`` オプションで何エポックごとにキャプションを完全にドロップアウトするか指定します。たとえば``3``を指定すると、エポック3、6、9……で、すべての画像がキャプションなしで学習されます。デフォルトは None （ドロップアウトなし）です。
+    - ``--caption_tag_dropout_rate`` オプションで各タグ（カンマ区切りの各部分）のドロップアウト率を指定します（0~1.0、 0.1を指定すると10%の確率でドロップアウト）。ドロップアウトが起きるとそのタグはそのときだけキャプションから取り除かれて学習されます。``--keep_tokens`` オプションを指定していると、シャッフルされない部分のタグはドロップアウトされません。デフォルトは 0 （ドロップアウトなし）です。
+    - 画像の一括縮小スクリプトを追加しました。ドキュメントは [こちら](https://github.com/kohya-ss/sd-scripts/blob/main/train_network_README-ja.md#%E7%94%BB%E5%83%8F%E3%83%AA%E3%82%B5%E3%82%A4%E3%82%BA%E3%82%B9%E3%82%AF%E3%83%AA%E3%83%97%E3%83%88) です。bmaltais氏に感謝します。
+    - 誤字チェッカが追加されました。shirayu氏に感謝します。
+    
+- 6 Feb. 2023, 2023/2/6：
+  - ``--bucket_reso_steps`` and ``--bucket_no_upscale`` options are added to training scripts (fine tuning, DreamBooth, LoRA and Textual Inversion) and ``prepare_buckets_latents.py``.
+  - ``--bucket_reso_steps`` takes the steps for buckets in aspect ratio bucketing. Default is 64, same as before.
+    - Any value greater than or equal to 1 can be specified; 64 is highly recommended and a value divisible by 8 is recommended.
+    - If less than 64 is specified, padding will occur within U-Net. The result is unknown.
+    - If you specify a value that is not divisible by 8, it will be truncated to divisible by 8 inside VAE, because the size of the latent is 1/8 of the image size.
+  - If ``--bucket_no_upscale`` option is specified, images smaller than the bucket size will be processed without upscaling.
+    - Internally, a bucket smaller than the image size is created (for example, if the image is 300x300 and ``bucket_reso_steps=64``, the bucket is 256x256). The image will be trimmed.
+    - Implementation of [#130](https://github.com/kohya-ss/sd-scripts/issues/130).
+    - Images with an area larger than the maximum size specified by ``--resolution`` are downsampled to the max bucket size.
+  - Now the number of data in each batch is limited to the number of actual images (not duplicated). Because a certain bucket may contain smaller number of actual images, so the batch may contain same (duplicated) images.
+  - ``--random_crop`` now also works with buckets enabled.
+    - Instead of always cropping the center of the image, the image is shifted left, right, up, and down to be used as the training data. This is expected to train to the edges of the image.
+    - Implementation of discussion [#34](https://github.com/kohya-ss/sd-scripts/discussions/34).
+
+  - ``--bucket_reso_steps``および``--bucket_no_upscale``オプションを、学習スクリプトおよび``prepare_buckets_latents.py``に追加しました。
+  - ``--bucket_reso_steps``オプションでは、bucketの解像度の単位を指定できます。デフォルトは64で、今までと同じ動作です。
+    - 1以上の任意の値を指定できます。基本的には64を推奨します。64以外の値では、8で割り切れる値を推奨します。
+    - 64未満を指定するとU-Netの内部でpaddingが発生します。どのような結果になるかは未知数です。
+    - 8で割り切れない値を指定すると余りはVAE内部で切り捨てられます。
+  - ``--bucket_no_upscale``オプションを指定すると、bucketサイズよりも小さい画像は拡大せずそのまま処理します。
+    - 内部的には画像サイズ以下のサイズのbucketを作成します（たとえば画像が300x300で``bucket_reso_steps=64``の場合、256x256のbucket）。余りは都度trimmingされます。
+    - [#130](https://github.com/kohya-ss/sd-scripts/issues/130) を実装したものです。
+    - ``--resolution``で指定した最大サイズよりも面積が大きい画像は、最大サイズと同じ面積になるようアスペクト比を維持したまま縮小され、そのサイズを元にbucketが作られます。
+  - これらのオプションによりbucketが細分化され、ひとつのバッチ内に同一画像が重複して存在することが増えたため、バッチサイズを``そのbucketの画像種類数``までに制限する機能を追加しました。
+    - たとえば繰り返し回数10で、あるbucketに1枚しか画像がなく、バッチサイズが10以上のとき、今まではepoch内で、同一画像を10枚含むバッチが1回だけ使用されていました。
+    - 機能追加後はepoch内にサイズ1のバッチが10回、使用されます。
+  - ``--random_crop``がbucketを有効にした場合にも機能するようになりました。
+    - 常に画像の中央を切り取るのではなく、左右、上下にずらして教師データにします。これにより画像端まで学習されることが期待されます。
+    - discussionの[#34](https://github.com/kohya-ss/sd-scripts/discussions/34)を実装したものです。
+    
+
+Please read [Releases](https://github.com/kohya-ss/sd-scripts/releases) for recent updates.
+最近の更新情報は [Release](https://github.com/kohya-ss/sd-scripts/releases) をご覧ください。
