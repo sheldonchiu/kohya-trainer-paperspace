@@ -1,16 +1,16 @@
 #export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH
 import os
 
-model_dir = "/tmp"
+model_dir = "/hy-tmp"
 # os.system(f"wget https://huggingface.co/stabilityai/stable-diffusion-2-1/resolve/main/v2-1_768-ema-pruned.safetensors -P {model_dir}")
 v2 = True
 v_parameterization = True
-project_name = "mecha_test"
+project_name = "mecha_v1"
 pretrained_model_name_or_path = f"{model_dir}/v2-1_768-ema-pruned.safetensors" 
 vae = "" 
-train_data_dir = "/app/train_data/tmp"
-in_json = "/app/train_data/tmp/meta_lat.json"
-output_dir = "/app/sd_output/mecha_test"
+train_data_dir = "/hy-tmp/mecha_ofa_wd14vit"
+in_json = "/hy-tmp/mecha_ofa_wd14vit/meta_lat.json"
+output_dir = "/hy-tmp/mecha_v1"
 resume_path = ""
 
 # Check if directory exists
@@ -39,9 +39,11 @@ import yaml
 
 #@title ## 5.2. Start Fine-Tuning
 #@markdown ### Define Parameter
-train_batch_size = 24 #@param {type:"number"}
+caption_tag_dropout_rate = 0.1
+train_batch_size = 16 #@param {type:"number"}
 train_text_encoder = True #@param {'type':'boolean'}
-max_train_steps = 5000 #@param {type:"number"}
+#max_train_steps = 20000 #@param {type:"number"}
+max_train_epochs=10
 mixed_precision = "fp16" #@param ["no","fp16","bf16"] {allow-input: false}
 save_precision = "fp16" #@param ["float", "fp16", "bf16"] {allow-input: false}
 save_n_epochs_type = "save_every_n_epochs" #@param ["save_every_n_epochs", "save_n_epoch_ratio"] {allow-input: false}
@@ -61,6 +63,7 @@ logging_dir = "/tf_logs"
 log_prefix = project_name
 additional_argument = "--save_state --xformers" #@param {type:"string"}
 print_hyperparameter = True #@param {type:"boolean"}
+flip_aug = True
 
 train_command=f"""
 accelerate launch --num_cpu_threads_per_process=8 fine_tune.py \
@@ -85,13 +88,15 @@ accelerate launch --num_cpu_threads_per_process=8 fine_tune.py \
   {"--use_8bit_adam" if use_8bit_adam else ""} \
   --learning_rate={learning_rate} \
   --dataset_repeats={dataset_repeats} \
-  --max_train_steps={max_train_steps} \
+  --max_train_epochs={max_train_epochs} \
   {"--seed=" + format(seed) if seed > 0 else ""} \
   {"--gradient_checkpointing" if gradient_checkpointing else ""} \
   {"--gradient_accumulation_steps=" + format(gradient_accumulation_steps) } \
   {"--clip_skip=" + format(clip_skip) if v2 == False else ""} \
   --logging_dir={logging_dir} \
   --log_prefix={log_prefix} \
+  {"--caption_tag_dropout_rate=" + format(caption_tag_dropout_rate) if caption_tag_dropout_rate else ""} \
+  {"--flip_aug" if flip_aug else ""} \
   {additional_argument}
   """
 debug_params = ["v2", \
@@ -116,13 +121,14 @@ debug_params = ["v2", \
                 "lr_scheduler", \
                 "dataset_repeats", \
                 "train_text_encoder", \
-                "max_train_steps", \
+                "max_train_epochs", \
                 "seed", \
                 "gradient_checkpointing", \
                 "gradient_accumulation_steps", \
                 "clip_skip", \
                 "logging_dir", \
                 "log_prefix", \
+                "caption_tag_dropout_rate",
                 "additional_argument"]
 
 if print_hyperparameter:
