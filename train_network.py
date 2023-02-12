@@ -1,5 +1,7 @@
 from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
 from torch.optim import Optimizer
+from torch.cuda.amp import autocast
+from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Optional, Union
 import importlib
 import argparse
@@ -12,13 +14,13 @@ import json
 
 from tqdm import tqdm
 import torch
+torch.backends.cuda.matmul.allow_tf32 = True
 from accelerate.utils import set_seed
 import diffusers
 from diffusers import DDPMScheduler
 
 import library.train_util as train_util
 from library.train_util import DreamBoothDataset, FineTuningDataset
-
 
 def collate_fn(examples):
   return examples[0]
@@ -235,11 +237,33 @@ def train(args):
       num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
       num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power)
 
+  if args.gradient_checkpointing:                       # according to TI example in Diffusers, train is required
+    unet.train()
+    text_encoder.train()
+
+    # set top parameter requires_grad = True for gradient checkpointing works
+    text_encoder.text_model.embeddings.requires_grad_(True)
+  else:
+    unet.eval()
+    text_encoder.eval()
+
   # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
   if args.full_fp16:
     assert args.mixed_precision == "fp16", "full_fp16 requires mixed precision='fp16' / full_fp16を使う場合はmixed_precision='fp16'を指定してください。"
     print("enable full fp16 training.")
     network.to(weight_dtype)
+
+  unet.requires_grad_(False)
+  unet.to(accelerator.device, dtype=weight_dtype)
+  text_encoder.requires_grad_(False)
+  text_encoder.to(accelerator.device, dtype=weight_dtype)
+
+  network.prepare_grad_etc(text_encoder, unet)
+
+  if not cache_latents:
+    vae.requires_grad_(False)
+    vae.eval()
+    vae.to(accelerator.device, dtype=weight_dtype)
 
   # acceleratorがなんかよろしくやってくれるらしい
   if train_unet and train_text_encoder:
@@ -254,27 +278,17 @@ def train(args):
   else:
     network, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         network, optimizer, train_dataloader, lr_scheduler)
-
-  unet.requires_grad_(False)
-  unet.to(accelerator.device, dtype=weight_dtype)
-  text_encoder.requires_grad_(False)
-  text_encoder.to(accelerator.device, dtype=weight_dtype)
-  if args.gradient_checkpointing:                       # according to TI example in Diffusers, train is required
-    unet.train()
-    text_encoder.train()
-
-    # set top parameter requires_grad = True for gradient checkpointing works
-    text_encoder.text_model.embeddings.requires_grad_(True)
-  else:
-    unet.eval()
-    text_encoder.eval()
-
-  network.prepare_grad_etc(text_encoder, unet)
-
-  if not cache_latents:
-    vae.requires_grad_(False)
-    vae.eval()
-    vae.to(accelerator.device, dtype=weight_dtype)
+    
+  # support DistributedDataParallel
+  if type(unet) == DDP:
+    unet_ddp = unet
+    unet = unet_ddp.module
+  if type(text_encoder) == DDP:
+    text_encoder_ddp = text_encoder
+    text_encoder = text_encoder_ddp.module
+  if type(network) == DDP:
+    network_ddp = network
+    network = network_ddp.module
 
   # 実験的機能：勾配も含めたfp16学習を行う　PyTorchにパッチを当ててfp16でのgrad scaleを有効にする
   if args.full_fp16:
@@ -415,6 +429,7 @@ def train(args):
         noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
         # Predict the noise residual
+        # with autocast():
         noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
         if args.v_parameterization:

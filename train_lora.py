@@ -1,16 +1,16 @@
 #export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH
 import os
 
-model_dir = "/tmp"
+model_dir = "/hy-tmp"
 # os.system(f"wget https://huggingface.co/stabilityai/stable-diffusion-2-1/resolve/main/v2-1_768-ema-pruned.safetensors -P {model_dir}")
-v2 = True
-v_parameterization = True
-project_name = "mecha_test"
-pretrained_model_name_or_path = f"{model_dir}/v2-1_768-ema-pruned.safetensors" 
+v2 = False
+v_parameterization = False
+project_name = "mecha_v1_sd15"
+pretrained_model_name_or_path = f"{model_dir}/v1-5-pruned.safetensors" 
 vae = "" 
-train_data_dir = "/app/train_data/tmp"
-in_json = "/app/train_data/tmp/meta_lat.json"
-output_dir = "/app/sd_output/mecha_test"
+train_data_dir = "/hy-tmp/mecha_ofa_wd14vit_v1"
+in_json = "/hy-tmp/mecha_ofa_wd14vit/meta_lat.json"
+output_dir = "/hy-tmp/mecha_v1_sd15"
 resume_path = ""
 
 # Check if directory exists
@@ -61,7 +61,7 @@ lr_scheduler_power = 1 #@param {'type':'number'}
 
 #@markdown Check the box to not save metadata in the output model.
 no_metadata = False #@param {type:"boolean"}
-training_comment = "this comment will be stored in the metadata" #@param {'type':'string'}
+training_comment = "anime mecha model base on sd 1.5, version 1" #@param {'type':'string'}
 
 print("Loading network module:", network_module)
 print(f"{network_module} dim set to:", network_dim)
@@ -115,12 +115,14 @@ import yaml
 
 #@title ## 5.2. Start Fine-Tuning
 #@markdown ### Define Parameter
-train_batch_size = 4 #@param {type:"number"}
+caption_dropout_rate = 0.1
+caption_tag_dropout_rate=0.1
+train_batch_size = 15 #@param {type:"number"}
 num_epochs = 10 #@param {type:"number"}
 dataset_repeats = 1 #@param {type:"number"}
 mixed_precision = "fp16" #@param ["no","fp16","bf16"] {allow-input: false}
 save_precision = "fp16" #@param ["float", "fp16", "bf16"] {allow-input: false}
-save_n_epochs_type = "save_n_epoch_ratio" #@param ["save_every_n_epochs", "save_n_epoch_ratio"] {allow-input: false}
+save_n_epochs_type = "save_every_n_epochs" #@param ["save_every_n_epochs", "save_n_epoch_ratio"] {allow-input: false}
 save_n_epochs_type_value = 1 #@param {type:"number"}
 save_model_as = "safetensors" #@param ["ckpt", "pt", "safetensors"] {allow-input: false}
 resolution = 768 #@param {type:"number"}
@@ -130,11 +132,11 @@ use_8bit_adam = True #@param {type:"boolean"}
 gradient_checkpointing = True #@param {type:"boolean"}
 gradient_accumulation_steps = 1 #@param {type:"number"}
 seed = 0 #@param {type:"number"}
-logging_dir = "/app/sd_output/logs"
+logging_dir = "/tf_logs"
 log_prefix = project_name
 additional_argument = "--xformers" #@param {type:"string"}
 print_hyperparameter = True #@param {type:"boolean"}
-flip = False
+flip = True
 
 train_command=f"""
 accelerate launch --num_cpu_threads_per_process=8 train_network.py \
@@ -178,6 +180,8 @@ accelerate launch --num_cpu_threads_per_process=8 train_network.py \
   --logging_dir={logging_dir} \
   --log_prefix={log_prefix} \
   {"--flip_aug" if flip else ""} \
+  {"--caption_dropout_rate=" + format(caption_dropout_rate) if caption_dropout_rate else ""} \
+  {"--caption_tag_dropout_rate=" + format(caption_tag_dropout_rate) if caption_tag_dropout_rate else ""} \
   {additional_argument}
   """
 

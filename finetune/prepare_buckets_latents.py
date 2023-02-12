@@ -142,25 +142,16 @@ def main(args):
     print(f"no metadata / メタデータファイルがありません: {args.in_json}")
     return
 
-  os.makedirs(os.path.join(args.train_data_dir, 'v1'), exist_ok=True)
-  if args.model_name_or_path_v2 is not None:
-    os.makedirs(os.path.join(args.train_data_dir, 'v2'), exist_ok=True)
-
   weight_dtype = torch.float32
   if args.mixed_precision == "fp16":
     weight_dtype = torch.float16
   elif args.mixed_precision == "bf16":
     weight_dtype = torch.bfloat16
 
-  vae_list = [model_util.load_vae(args.model_name_or_path, weight_dtype)]
-  if args.model_name_or_path_v2:
-      vae_list.append(model_util.load_vae(args.model_name_or_path_v2, weight_dtype))
+  vae = model_util.load_vae(args.model_name_or_path, weight_dtype)
+  vae.eval()
+  vae.to(DEVICE, dtype=weight_dtype)
   
-  for idx, vae in enumerate(vae_list):
-    vae.eval()
-    vae.to(DEVICE, dtype=weight_dtype)
-    os.makedirs(os.path.join(args.train_data_dir, f'v{idx+1}'), exist_ok=True)
-    
   if args.upscale:
     upsampler = prepare_upscaler(
       args.upscale_model_name, args.upscale_model_dir, args)
@@ -183,29 +174,28 @@ def main(args):
   def process_batch(is_last):
     for bucket in bucket_manager.buckets:
       if (is_last and len(bucket) > 0) or len(bucket) >= args.batch_size:
-        for idx, vae in enumerate(vae_list):
-          latents = get_latents(vae, [img for _, img in bucket], weight_dtype)
-          assert latents.shape[2] == bucket[0][1].shape[0] // 8 and latents.shape[3] == bucket[0][1].shape[1] // 8, \
-              f"latent shape {latents.shape}, {bucket[0][1].shape}"
+        latents = get_latents(vae, [img for _, img in bucket], weight_dtype)
+        assert latents.shape[2] == bucket[0][1].shape[0] // 8 and latents.shape[3] == bucket[0][1].shape[1] // 8, \
+            f"latent shape {latents.shape}, {bucket[0][1].shape}"
 
-          for (image_key, _, _), latent in zip(bucket, latents):
-            npz_file_name = get_npz_filename_wo_ext(os.path.join(args.train_data_dir, f"v{idx+1}"), image_key, args.full_path, False)
+        for (image_key, _), latent in zip(bucket, latents):
+          npz_file_name = get_npz_filename_wo_ext(args.train_data_dir, image_key, args.full_path, False)
+          np.savez(npz_file_name, latent)
+
+        # flip
+        if args.flip_aug:
+          latents = get_latents(vae, [img[:, ::-1].copy() for _, img in bucket], weight_dtype)   # copyがないとTensor変換できない
+
+          for (image_key, _), latent in zip(bucket, latents):
+            npz_file_name = get_npz_filename_wo_ext(args.train_data_dir, image_key, args.full_path, True)
             np.savez(npz_file_name, latent)
-
-          # flip
-          if args.flip_aug:
-            latents = get_latents(vae, [img[:, ::-1].copy() for _, _, img in bucket], weight_dtype)   # copyがないとTensor変換できない
-
-            for (image_key, _), latent in zip(bucket, latents):
-              npz_file_name = get_npz_filename_wo_ext(os.path.join(args.train_data_dir, f"v{idx+1}"), image_key, args.full_path, True)
-              np.savez(npz_file_name, latent)
-          else:
-            # remove existing flipped npz
-            for image_key, _ in bucket:
-              npz_file_name = get_npz_filename_wo_ext(os.path.join(args.train_data_dir, f"v{idx+1}"), image_key, args.full_path, True)
-              if os.path.isfile(npz_file_name):
-                print(f"remove existing flipped npz / 既存のflipされたnpzファイルを削除します: {npz_file_name}")
-                os.remove(npz_file_name)
+        else:
+          # remove existing flipped npz
+          for image_key, _ in bucket:
+            npz_file_name = get_npz_filename_wo_ext(args.train_data_dir, image_key, args.full_path, True) + ".npz"
+            if os.path.isfile(npz_file_name):
+              print(f"remove existing flipped npz / 既存のflipされたnpzファイルを削除します: {npz_file_name}")
+              os.remove(npz_file_name)
 
         bucket.clear()
 
@@ -259,11 +249,10 @@ def main(args):
 
     # 既に存在するファイルがあればshapeを確認して同じならskipする
     if args.skip_existing:
-      npz_files = []
-      for idx, vae in enumerate(vae_list):
-        npz_files.append(get_npz_filename_wo_ext(os.path.join(args.train_data_dir, f"v{idx+1}"), image_key, args.full_path, False) + ".npz")
-        if args.flip_aug:
-          npz_files.append(get_npz_filename_wo_ext(os.path.join(args.train_data_dir, f"v{idx+1}"), image_key, args.full_path, True) + ".npz")
+      npz_files = [get_npz_filename_wo_ext(args.train_data_dir, image_key, args.full_path, False) + ".npz"]
+      if args.flip_aug:
+        npz_files.append(get_npz_filename_wo_ext(args.train_data_dir, image_key, args.full_path, True) + ".npz")
+
       found = True
       for npz_file in npz_files:
         if not os.path.exists(npz_file):
@@ -341,8 +330,6 @@ if __name__ == '__main__':
   parser.add_argument("out_json", type=str,
                       help="metadata file to output / メタデータファイル書き出し先")
   parser.add_argument("model_name_or_path", type=str,
-                      help="model name or path to encode latents / latentを取得するためのモデル")
-  parser.add_argument("--model_name_or_path_v2", type=str, default=None,
                       help="model name or path to encode latents / latentを取得するためのモデル")
   parser.add_argument("--v2", action='store_true',
                       help='not used (for backward compatibility) / 使用されません（互換性のため残してあります）')

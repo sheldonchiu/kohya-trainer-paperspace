@@ -87,13 +87,11 @@ CAPTION_REPLACEMENTS = [
     ('anime girl', 'girl'),
     ('cartoon female', 'girl'),
     ('cartoon lady', 'girl'),
-    ('cartoon character', 'girl'),      # a or ~s
     ('cartoon woman', 'girl'),
     ('cartoon women', 'girls'),
     ('cartoon girl', 'girl'),
     ('anime female', 'girl'),
     ('anime lady', 'girl'),
-    ('anime character', 'girl'),      # a or ~s
     ('anime woman', 'girl'),
     ('anime women', 'girls'),
     ('lady', 'girl'),

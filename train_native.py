@@ -39,7 +39,8 @@ import yaml
 
 #@title ## 5.2. Start Fine-Tuning
 #@markdown ### Define Parameter
-caption_tag_dropout_rate = 0.1
+caption_dropout_rate = 0.1
+caption_tag_dropout_rate=0.1
 train_batch_size = 16 #@param {type:"number"}
 train_text_encoder = True #@param {'type':'boolean'}
 #max_train_steps = 20000 #@param {type:"number"}
@@ -95,6 +96,7 @@ accelerate launch --num_cpu_threads_per_process=8 fine_tune.py \
   {"--clip_skip=" + format(clip_skip) if v2 == False else ""} \
   --logging_dir={logging_dir} \
   --log_prefix={log_prefix} \
+  {"--caption_dropout_rate=" + format(caption_dropout_rate) if caption_dropout_rate else ""} \
   {"--caption_tag_dropout_rate=" + format(caption_tag_dropout_rate) if caption_tag_dropout_rate else ""} \
   {"--flip_aug" if flip_aug else ""} \
   {additional_argument}
