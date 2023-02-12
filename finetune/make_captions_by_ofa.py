@@ -6,8 +6,8 @@ import random
 
 import library.train_util as train_util
 
-import sys
-sys.path.insert(0, os.path.abspath('./ofa/fairseq'))
+#import sys
+#sys.path.insert(0, os.path.abspath('./ofa/fairseq'))
 
 from PIL import Image
 from tqdm import tqdm
@@ -139,7 +139,7 @@ def main(args):
   print(f"loading OFA caption: {args.caption_weights}")
   if is_url(args.caption_weights):
     args.caption_weights = download_cached_file(args.caption_weights, check_hash=False, progress=True)
-  overrides = {"bpe_dir": "ofa/utils/BPE", "eval_cider": False, "beam": args.num_beams,
+  overrides = {"bpe_dir": os.path.join(os.path.dirname(os.path.abspath(__file__)), "ofa/utils/BPE"), "eval_cider": False, "beam": args.num_beams,
                 "max_len_b": args.max_length, "no_repeat_ngram_size": args.no_repeat_ngram_size, "seed": args.seed, "temperature":args.temperature, "min_len": args.min_length}
   models, cfg, task = checkpoint_utils.load_model_ensemble_and_task(
       utils.split_paths(args.caption_weights),
