@@ -4,6 +4,8 @@ import os
 import json
 import random
 
+import library.train_util as train_util
+
 import sys
 sys.path.insert(0, os.path.abspath('./ofa/fairseq'))
 
@@ -22,8 +24,6 @@ from ofa.data import data_utils
 from urllib.parse import urlparse
 from timm.models.hub import download_cached_file
 from torchvision.transforms.functional import InterpolationMode
-
-import library.train_util as train_util
 
 # Register caption task
 tasks.register_task('caption', CaptionTask)

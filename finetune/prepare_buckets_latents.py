@@ -2,6 +2,9 @@ import argparse
 import os
 import json
 
+import library.model_util as model_util
+import library.train_util as train_util
+
 from tqdm import tqdm
 import numpy as np
 from PIL import Image
@@ -9,9 +12,6 @@ import cv2
 import torch
 from torchvision import transforms
 from itertools import chain
-
-import library.model_util as model_util
-import library.train_util as train_util
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

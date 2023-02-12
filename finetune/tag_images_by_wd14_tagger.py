@@ -3,6 +3,8 @@ import csv
 import glob
 import os
 
+import library.train_util as train_util
+
 from PIL import Image
 import cv2
 from tqdm import tqdm
@@ -10,8 +12,6 @@ import numpy as np
 from tensorflow.keras.models import load_model
 from huggingface_hub import hf_hub_download
 import torch
-
-import library.train_util as train_util
 
 # from wd14 tagger
 IMAGE_SIZE = 448
