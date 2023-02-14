@@ -6,6 +6,10 @@ import gc
 import math
 import os
 
+from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
+from torch.optim import Optimizer
+from typing import Optional, Union
+
 from tqdm import tqdm
 import torch
 from accelerate.utils import set_seed
@@ -17,6 +21,67 @@ import library.train_util as train_util
 
 def collate_fn(examples):
   return examples[0]
+
+# Monkeypatch newer get_scheduler() function overridng current version of diffusers.optimizer.get_scheduler
+# code is taken from https://github.com/huggingface/diffusers diffusers.optimizer, commit d87cc15977b87160c30abaace3894e802ad9e1e6
+# Which is a newer release of diffusers than currently packaged with sd-scripts
+# This code can be removed when newer diffusers version (v0.12.1 or greater) is tested and implemented to sd-scripts
+
+def get_scheduler_fix(
+    name: Union[str, SchedulerType],
+    optimizer: Optimizer,
+    num_warmup_steps: Optional[int] = None,
+    num_training_steps: Optional[int] = None,
+    num_cycles: int = 1,
+    power: float = 1.0,
+):
+  """
+  Unified API to get any scheduler from its name.
+  Args:
+      name (`str` or `SchedulerType`):
+          The name of the scheduler to use.
+      optimizer (`torch.optim.Optimizer`):
+          The optimizer that will be used during training.
+      num_warmup_steps (`int`, *optional*):
+          The number of warmup steps to do. This is not required by all schedulers (hence the argument being
+          optional), the function will raise an error if it's unset and the scheduler type requires it.
+      num_training_steps (`int``, *optional*):
+          The number of training steps to do. This is not required by all schedulers (hence the argument being
+          optional), the function will raise an error if it's unset and the scheduler type requires it.
+      num_cycles (`int`, *optional*):
+          The number of hard restarts used in `COSINE_WITH_RESTARTS` scheduler.
+      power (`float`, *optional*, defaults to 1.0):
+          Power factor. See `POLYNOMIAL` scheduler
+      last_epoch (`int`, *optional*, defaults to -1):
+          The index of the last epoch when resuming training.
+  """
+  name = SchedulerType(name)
+  schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+  if name == SchedulerType.CONSTANT:
+    return schedule_func(optimizer)
+
+  # All other schedulers require `num_warmup_steps`
+  if num_warmup_steps is None:
+    raise ValueError(f"{name} requires `num_warmup_steps`, please provide that argument.")
+
+  if name == SchedulerType.CONSTANT_WITH_WARMUP:
+    return schedule_func(optimizer, num_warmup_steps=num_warmup_steps)
+
+  # All other schedulers require `num_training_steps`
+  if num_training_steps is None:
+    raise ValueError(f"{name} requires `num_training_steps`, please provide that argument.")
+
+  if name == SchedulerType.COSINE_WITH_RESTARTS:
+    return schedule_func(
+        optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps, num_cycles=num_cycles
+    )
+
+  if name == SchedulerType.POLYNOMIAL:
+    return schedule_func(
+        optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps, power=power
+    )
+
+  return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps)
 
 
 def train(args):
@@ -117,15 +182,21 @@ def train(args):
 
   # 学習を準備する：モデルを適切な状態にする
   training_models = []
+  learning_rates = []
+  network_names = []
   if args.gradient_checkpointing:
     unet.enable_gradient_checkpointing()
   training_models.append(unet)
+  learning_rates.append(args.learning_rate)
+  network_names.append("unet")
 
   if args.train_text_encoder:
     print("enable text encoder training")
     if args.gradient_checkpointing:
       text_encoder.gradient_checkpointing_enable()
     training_models.append(text_encoder)
+    learning_rates.append(args.text_encoder_learning_rate)
+    network_names.append("text_encoder")
   else:
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     text_encoder.requires_grad_(False)             # text encoderは学習しない
@@ -142,10 +213,10 @@ def train(args):
 
   for m in training_models:
     m.requires_grad_(True)
-  params = []
-  for m in training_models:
-    params.extend(m.parameters())
-  params_to_optimize = params
+  # params = []
+  # for m in training_models:
+  #   params.extend(m.parameters())
+  # params_to_optimize = params
 
   # 学習に必要なクラスを準備する
   print("prepare optimizer, data loader etc.")
@@ -162,7 +233,9 @@ def train(args):
     optimizer_class = torch.optim.AdamW
 
   # betaやweight decayはdiffusers DreamBoothもDreamBooth SDもデフォルト値のようなのでオプションはとりあえず省略
-  optimizer = optimizer_class(params_to_optimize, lr=args.learning_rate)
+  optimizers = []
+  for m, lr in zip(training_models,learning_rates):
+    optimizers.append(optimizer_class(m.parameters(), lr=lr))
 
   # dataloaderを準備する
   # DataLoaderのプロセス数：0はメインプロセスになる
@@ -176,8 +249,17 @@ def train(args):
     print(f"override steps. steps for {args.max_train_epochs} epochs is / 指定エポックまでのステップ数: {args.max_train_steps}")
 
   # lr schedulerを用意する
-  lr_scheduler = diffusers.optimization.get_scheduler(
-      args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps, num_training_steps=args.max_train_steps * args.gradient_accumulation_steps)
+  lr_schedulers = []
+  for o, name in zip(optimizers, network_names):
+    if name == 'text_encoder':
+      lr_schedulers.append(
+        get_scheduler_fix('constant', o, 
+          num_warmup_steps=args.lr_warmup_steps))
+    else:
+      lr_schedulers.append(get_scheduler_fix(
+        args.lr_scheduler, o, num_warmup_steps=args.lr_warmup_steps,
+        num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
+        num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power))
 
   # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
   if args.full_fp16:
@@ -188,10 +270,12 @@ def train(args):
 
   # acceleratorがなんかよろしくやってくれるらしい
   if args.train_text_encoder:
-    unet, text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        unet, text_encoder, optimizer, train_dataloader, lr_scheduler)
+    unet, text_encoder, train_dataloader, other  = accelerator.prepare(
+        unet, text_encoder, train_dataloader, *optimizers, *lr_schedulers)
   else:
-    unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(unet, optimizer, train_dataloader, lr_scheduler)
+    unet, train_dataloader, other = accelerator.prepare(unet, train_dataloader, *optimizers, *lr_schedulers)
+  optimizers = other[:len(optimizers)]
+  lr_schedulers = other[len(optimizers):]
 
   # 実験的機能：勾配も含めたfp16学習を行う　PyTorchにパッチを当ててfp16でのgrad scaleを有効にする
   if args.full_fp16:
@@ -282,9 +366,10 @@ def train(args):
             params_to_clip.extend(m.parameters())
           accelerator.clip_grad_norm_(params_to_clip, 1.0)  # args.max_grad_norm)
 
-        optimizer.step()
-        lr_scheduler.step()
-        optimizer.zero_grad(set_to_none=True)
+        for i in range(len(training_models)):
+          optimizers[i].step()
+          lr_schedulers[i].step()
+          optimizers[i].zero_grad(set_to_none=True)
 
       # Checks if the accelerator has performed an optimization step behind the scenes
       if accelerator.sync_gradients:
@@ -292,14 +377,16 @@ def train(args):
         global_step += 1
 
       current_loss = loss.detach().item()        # 平均なのでbatch sizeは関係ないはず
-      if args.logging_dir is not None:
-        logs = {"loss": current_loss, "lr": lr_scheduler.get_last_lr()[0]}
-        accelerator.log(logs, step=global_step)
-
       loss_total += current_loss
       avr_loss = loss_total / (step+1)
       logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
       progress_bar.set_postfix(**logs)
+
+      if args.logging_dir is not None:
+        logs = {"loss/current": current_loss, "loss/average": avr_loss}
+        for idx, lr in enumerate(lr_schedulers):
+          logs[f"lr/{network_names[idx]}"] = lr.get_last_lr()[0]
+        accelerator.log(logs, step=global_step)
 
       if global_step >= args.max_train_steps:
         break
@@ -341,6 +428,12 @@ if __name__ == '__main__':
   train_util.add_dataset_arguments(parser, False, True, True)
   train_util.add_training_arguments(parser, False)
   train_util.add_sd_saving_arguments(parser)
+
+  parser.add_argument("--text_encoder_learning_rate", type=float, default=5e-6, help="learning rate for text encoder / 学習率")
+  parser.add_argument("--lr_scheduler_num_cycles", type=int, default=1,
+                      help="Number of restarts for cosine scheduler with restarts / cosine with restartsスケジューラでのリスタート回数")
+  parser.add_argument("--lr_scheduler_power", type=float, default=1,
+                      help="Polynomial power for polynomial scheduler / polynomialスケジューラでのpolynomial power")
 
   parser.add_argument("--diffusers_xformers", action='store_true',
                       help='use xformers by diffusers / Diffusersでxformersを使用する')
