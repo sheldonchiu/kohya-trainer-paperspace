@@ -1,6 +1,5 @@
 from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
 from torch.optim import Optimizer
-from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Optional, Union
 import importlib
@@ -157,6 +156,11 @@ def train(args):
   # モデルを読み込む
   text_encoder, vae, unet, _ = train_util.load_target_model(args, weight_dtype)
 
+  # work on low-ram device
+  if args.lowram:
+    text_encoder.to("cuda")
+    unet.to("cuda")
+  
   # モデルに xformers とか memory efficient attention を組み込む
   train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers)
 
@@ -211,8 +215,17 @@ def train(args):
       raise ImportError("No bitsand bytes / bitsandbytesがインストールされていないようです")
     print("use 8-bit Adam optimizer")
     optimizer_class = bnb.optim.AdamW8bit
+  elif args.use_lion_optimizer:
+    try:
+      import lion_pytorch
+    except ImportError:
+      raise ImportError("No lion_pytorch / lion_pytorch がインストールされていないようです")
+    print("use Lion optimizer")
+    optimizer_class = lion_pytorch.Lion
   else:
     optimizer_class = torch.optim.AdamW
+
+  optimizer_name = optimizer_class.__module__ + "." + optimizer_class.__name__
 
   trainable_params = network.prepare_optimizer_params(args.text_encoder_lr, args.unet_lr)
 
@@ -354,11 +367,14 @@ def train(args):
       "ss_max_bucket_reso": train_dataset.max_bucket_reso,
       "ss_seed": args.seed,
       "ss_keep_tokens": args.keep_tokens,
+      "ss_noise_offset": args.noise_offset,
       "ss_dataset_dirs": json.dumps(train_dataset.dataset_dirs_info),
       "ss_reg_dataset_dirs": json.dumps(train_dataset.reg_dataset_dirs_info),
       "ss_tag_frequency": json.dumps(train_dataset.tag_frequency),
       "ss_bucket_info": json.dumps(train_dataset.bucket_info),
-      "ss_training_comment": args.training_comment        # will not be updated after training
+      "ss_training_comment": args.training_comment,       # will not be updated after training
+      "ss_sd_scripts_commit_hash": train_util.get_git_revision_hash(),
+      "ss_optimizer": optimizer_name
   }
 
   # uncomment if another network is added
@@ -392,6 +408,8 @@ def train(args):
   if accelerator.is_main_process:
     accelerator.init_trackers("network_train")
 
+  loss_list = []
+  loss_total = 0.0
   for epoch in range(num_train_epochs):
     print(f"epoch {epoch+1}/{num_train_epochs}")
     train_dataset.set_current_epoch(epoch + 1)
@@ -400,7 +418,6 @@ def train(args):
 
     network.on_epoch_start(text_encoder, unet)
 
-    loss_total = 0
     for step, batch in enumerate(train_dataloader):
       with accelerator.accumulate(network):
         with torch.no_grad():
@@ -419,6 +436,9 @@ def train(args):
 
         # Sample noise that we'll add to the latents
         noise = torch.randn_like(latents, device=latents.device)
+        if args.noise_offset:
+          # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+          noise += args.noise_offset * torch.randn((latents.shape[0], latents.shape[1], 1, 1), device=latents.device)
 
         # Sample a random timestep for each image
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (b_size,), device=latents.device)
@@ -461,8 +481,13 @@ def train(args):
         global_step += 1
 
       current_loss = loss.detach().item()
+      if epoch == 0:
+        loss_list.append(current_loss)
+      else:
+        loss_total -= loss_list[step]
+        loss_list[step] = current_loss
       loss_total += current_loss
-      avr_loss = loss_total / (step+1)
+      avr_loss = loss_total / len(loss_list)
       logs = {"loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
       progress_bar.set_postfix(**logs)
 
@@ -474,7 +499,7 @@ def train(args):
         break
 
     if args.logging_dir is not None:
-      logs = {"loss/epoch": loss_total / len(train_dataloader)}
+      logs = {"loss/epoch": loss_total / len(loss_list)}
       accelerator.log(logs, step=epoch+1)
 
     accelerator.wait_for_everyone()

@@ -124,6 +124,38 @@ The majority of scripts is licensed under ASL 2.0 (including codes from Diffuser
 
 ## Change History
 
+- 19 Feb. 2023, 2023/2/19:
+  - Add ``--use_lion_optimizer`` to each training script to use [Lion optimizer](https://github.com/lucidrains/lion-pytorch).
+    - Please install Lion optimizer with ``pip install lion-pytorch`` (it is not in ``requirements.txt`` currently.)
+  - Add ``--lowram`` option to ``train_network.py``. Load models to VRAM instead of VRAM (for machines which have bigger VRAM than RAM such as Colab and Kaggle). Thanks to Isotr0py!
+    - Default behavior (without lowram) has reverted to the same as before 14 Feb.
+  - Fixed git commit hash to be set correctly regardless of the working directory. Thanks to vladmandic!
+
+  - ``--use_lion_optimizer`` オプションを各学習スクリプトに追加しました。 [Lion optimizer](https://github.com/lucidrains/lion-pytorch) を使用できます。
+    - あらかじめ ``pip install lion-pytorch`` でインストールしてください（現在は ``requirements.txt`` に含まれていません）。
+  - ``--lowram`` オプションを ``train_network.py`` に追加しました。モデルをRAMではなくVRAMに読み込みます（ColabやKaggleなど、VRAMがRAMに比べて多い環境で有効です）。 Isotr0py 氏に感謝します。
+    - lowram オプションなしのデフォルト動作は2/14より前と同じに戻しました。
+  - git commit hash を現在のフォルダ位置に関わらず正しく取得するように修正しました。vladmandic 氏に感謝します。
+  
+- 16 Feb. 2023, 2023/2/16:
+  - Noise offset is recorded to the metadata. Thanks to space-nuko!
+  - Show the moving average loss to prevent loss jumping in ``train_network.py`` and ``train_db.py``. Thanks to shirayu!
+  - Noise offsetがメタデータに記録されるようになりました。space-nuko氏に感謝します。
+  - ``train_network.py``と``train_db.py``で学習中に表示されるlossの値が移動平均になりました。epochの先頭で表示されるlossが大きく変動する事象を解決します。shirayu氏に感謝します。
+- 14 Feb. 2023, 2023/2/14:
+  - Add support with multi-gpu trainining for ``train_network.py``. Thanks to Isotr0py!
+  - Add ``--verbose`` option for ``resize_lora.py``. For details, see [this PR](https://github.com/kohya-ss/sd-scripts/pull/179). Thanks to mgz-dev!
+  - Git commit hash is added to the metadata for LoRA. Thanks to space-nuko!
+  - Add ``--noise_offset`` option for each training scripts. 
+    - Implementation of https://www.crosslabs.org//blog/diffusion-with-offset-noise 
+    - This option may improve ability to generate darker/lighter images. May work with LoRA.
+  - ``train_network.py``でマルチGPU学習をサポートしました。Isotr0py氏に感謝します。
+  - ``--verbose``オプションを ``resize_lora.py`` に追加しました。表示される情報の詳細は [こちらのPR](https://github.com/kohya-ss/sd-scripts/pull/179) をご参照ください。mgz-dev氏に感謝します。
+  - LoRAのメタデータにgitのcommit hashを追加しました。space-nuko氏に感謝します。
+  - ``--noise_offset`` オプションを各学習スクリプトに追加しました。
+    - こちらの記事の実装になります: https://www.crosslabs.org//blog/diffusion-with-offset-noise 
+    - 全体的に暗い、明るい画像の生成結果が良くなる可能性があるようです。LoRA学習でも有効なようです。
+
 - 11 Feb. 2023, 2023/2/11:
   - ``lora_interrogator.py`` is added in ``networks`` folder. See ``python networks\lora_interrogator.py -h`` for usage.
     - For LoRAs where the activation word is unknown, this script compares the output of Text Encoder after applying LoRA to that of unapplied to find out which token is affected by LoRA. Hopefully you can figure out the activation word. LoRA trained with captions does not seem to be able to interrogate.
