@@ -139,8 +139,8 @@ def main(args):
     with open(args.in_json, "rt", encoding='utf-8') as f:
       metadata = json.load(f)
   else:
-    print(f"no metadata / メタデータファイルがありません: {args.in_json}")
-    return
+    metadata = None
+    print(f"Continuing without metadata")
 
   weight_dtype = torch.float32
   if args.mixed_precision == "fp16":
@@ -225,7 +225,7 @@ def main(args):
         continue
 
     image_key = image_path if args.full_path else os.path.splitext(os.path.basename(image_path))[0]
-    if image_key not in metadata:
+    if metadata is not None and image_key not in metadata:
       metadata[image_key] = {}
 
     # 本当はこのあとの部分もDataSetに持っていけば高速化できるがいろいろ大変
@@ -235,7 +235,8 @@ def main(args):
     bucket_counts[reso] = bucket_counts.get(reso, 0) + 1
 
     # メタデータに記録する解像度はlatent単位とするので、8単位で切り捨て
-    metadata[image_key]['train_resolution'] = (reso[0] - reso[0] % 8, reso[1] - reso[1] % 8)
+    if metadata is not None:
+      metadata[image_key]['train_resolution'] = (reso[0] - reso[0] % 8, reso[1] - reso[1] % 8)
 
     if not args.bucket_no_upscale:
       # upscaleを行わないときには、resize後のサイズは、bucketのサイズと、縦横どちらかが同じであることを確認する
@@ -315,9 +316,10 @@ def main(args):
   print(f"mean ar error: {np.mean(img_ar_errors)}")
 
   # metadataを書き出して終わり
-  print(f"writing metadata: {args.out_json}")
-  with open(args.out_json, "wt", encoding='utf-8') as f:
-    json.dump(metadata, f, indent=2)
+  if metadata is not None:
+    print(f"writing metadata: {args.out_json}")
+    with open(args.out_json, "wt", encoding='utf-8') as f:
+      json.dump(metadata, f, indent=2)
   print("done!")
 
 
