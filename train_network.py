@@ -106,6 +106,7 @@ def train(args):
   # acceleratorを準備する
   print("prepare accelerator")
   accelerator, unwrap_model = train_util.prepare_accelerator(args)
+  is_main_process = accelerator.is_main_process
 
   is_main_process = accelerator.is_main_process
   # mixed precisionに対応した型を用意しておき適宜castする
@@ -135,6 +136,8 @@ def train(args):
     gc.collect()
 
   # prepare network
+  import sys
+  sys.path.append(os.path.dirname(__file__))
   print("import network module:", args.network_module)
   network_module = importlib.import_module(args.network_module)
 
@@ -182,7 +185,7 @@ def train(args):
 
   # lr schedulerを用意する
   lr_scheduler = train_util.get_scheduler_fix(args.lr_scheduler, optimizer, num_warmup_steps=args.lr_warmup_steps,
-                                              num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
+                                              num_training_steps=args.max_train_steps * accelerator.num_processes * args.gradient_accumulation_steps,
                                               num_cycles=args.lr_scheduler_num_cycles, power=args.lr_scheduler_power)
     
   # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
@@ -257,6 +260,7 @@ def train(args):
   # 学習する
   # TODO: find a way to handle total batch size when there are multiple datasets
   total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+  
   if is_main_process:
     print("running training / 学習開始")
     print(f"  num train images * repeats / 学習画像の数×繰り返し回数: {train_dataset_group.num_train_images}")
@@ -415,7 +419,7 @@ def train(args):
             "img_count": subset.img_count
         }
 
-    metadata |= {
+    metadata.update({
         "ss_batch_size_per_device": args.train_batch_size,
         "ss_total_batch_size": total_batch_size,
         "ss_resolution": args.resolution,
@@ -432,12 +436,15 @@ def train(args):
         "ss_reg_dataset_dirs": json.dumps(reg_dataset_dirs_info),
         "ss_tag_frequency": json.dumps(dataset.tag_frequency),
         "ss_bucket_info": json.dumps(dataset.bucket_info),
-    }
+    })
 
-  # uncomment if another network is added
-  # for key, value in net_kwargs.items():
-  #   metadata["ss_arg_" + key] = value
+  # add extra args
+  if args.network_args:
+    metadata["ss_network_args"] = json.dumps(net_kwargs)
+    # for key, value in net_kwargs.items():
+    #   metadata["ss_arg_" + key] = value
 
+  # model name and hash
   if args.pretrained_model_name_or_path is not None:
     sd_model_name = args.pretrained_model_name_or_path
     if os.path.exists(sd_model_name):
@@ -455,6 +462,13 @@ def train(args):
     metadata["ss_vae_name"] = vae_name
 
   metadata = {k: str(v) for k, v in metadata.items()}
+
+  # make minimum metadata for filtering
+  minimum_keys = ["ss_network_module", "ss_network_dim", "ss_network_alpha", "ss_network_args"]
+  minimum_metadata = {}
+  for key in minimum_keys:
+    if key in metadata:
+      minimum_metadata[key] = metadata[key]
 
   progress_bar = tqdm(range(args.max_train_steps), smoothing=0, disable=not accelerator.is_local_main_process, desc="steps")
   global_step = 0
@@ -572,7 +586,7 @@ def train(args):
         ckpt_file = os.path.join(args.output_dir, ckpt_name)
         metadata["ss_training_finished_at"] = str(time.time())
         print(f"saving checkpoint: {ckpt_file}")
-        unwrap_model(network).save_weights(ckpt_file, save_dtype, None if args.no_metadata else metadata)
+        unwrap_model(network).save_weights(ckpt_file, save_dtype, minimum_metadata if args.no_metadata else metadata)
 
       def remove_old_func(old_epoch_no):
         old_ckpt_name = train_util.EPOCH_FILE_NAME.format(model_name, old_epoch_no) + '.' + args.save_model_as
@@ -580,6 +594,7 @@ def train(args):
         if os.path.exists(old_ckpt_file):
           print(f"removing old checkpoint: {old_ckpt_file}")
           os.remove(old_ckpt_file)
+
       if is_main_process:
         saving = train_util.save_on_epoch_end(args, save_func, remove_old_func, epoch + 1, num_train_epochs)
         if saving and args.save_state:
@@ -610,7 +625,7 @@ def train(args):
     ckpt_file = os.path.join(args.output_dir, ckpt_name)
 
     print(f"save trained model to {ckpt_file}")
-    network.save_weights(ckpt_file, save_dtype, None if args.no_metadata else metadata)
+    network.save_weights(ckpt_file, save_dtype, minimum_metadata if args.no_metadata else metadata)
     print("model saved.")
 
 
