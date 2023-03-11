@@ -60,7 +60,7 @@ DEFAULT_LAST_OUTPUT_NAME = "last"
 
 # region dataset
 
-IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp"]
+IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".npz"]
 
 
 class ImageInfo():
@@ -1681,6 +1681,7 @@ def get_optimizer(args, trainable_params):
 
   # 引数を分解する：boolとfloat、tupleのみ対応
   optimizer_kwargs = {}
+  print(args.optimizer_args)
   if args.optimizer_args is not None and len(args.optimizer_args) > 0:
     for arg in args.optimizer_args:
       key, value = arg.split('=')
@@ -2047,6 +2048,9 @@ def get_hidden_states(args: argparse.Namespace, input_ids, tokenizer, text_encod
   else:
     enc_out = text_encoder(input_ids, output_hidden_states=True, return_dict=True)
     encoder_hidden_states = enc_out['hidden_states'][-args.clip_skip]
+    if weight_dtype is not None:
+      # this is required for additional network training
+      encoder_hidden_states = encoder_hidden_states.to(weight_dtype)
     encoder_hidden_states = text_encoder.text_model.final_layer_norm(encoder_hidden_states)
 
   # bs*3, 77, 768 or 1024
@@ -2072,10 +2076,6 @@ def get_hidden_states(args: argparse.Namespace, input_ids, tokenizer, text_encod
         states_list.append(encoder_hidden_states[:, i:i + tokenizer.model_max_length - 2])  # <BOS> の後から <EOS> の前まで
       states_list.append(encoder_hidden_states[:, -1].unsqueeze(1))                         # <EOS>
       encoder_hidden_states = torch.cat(states_list, dim=1)
-
-  if weight_dtype is not None:
-    # this is required for additional network training
-    encoder_hidden_states = encoder_hidden_states.to(weight_dtype)
 
   return encoder_hidden_states
 
@@ -2289,6 +2289,8 @@ def sample_images(accelerator, args: argparse.Namespace, epoch, steps, device, v
   with torch.no_grad():
     with accelerator.autocast():
       for i, prompt in enumerate(prompts):
+        if not accelerator.is_main_process:
+          continue
         prompt = prompt.strip()
         if len(prompt) == 0 or prompt[0] == '#':
           continue

@@ -17,6 +17,8 @@ apt-get update && apt-get install -y wget git libgl1 libglib2.0-0 pigz
 pip install -U pip
 pip install torchaudio==0.13.1+cu116 --extra-index-url https://download.pytorch.org/whl/cu116
 # pip install protobuf==3.20.3
-pip install -r requirements.txt
-pip install minio python-logging-discord-handler triton==2.0.0.dev20230208
-pip install xformers==0.0.16
+pip install -r requirements.txt -i https://mirrors.bfsu.edu.cn/pypi/web/simple
+pip install minio python-logging-discord-handler triton==2.0.0
+pip install xformers==0.0.17.dev466 triton==2.0.0 -i https://mirrors.bfsu.edu.cn/pypi/web/simple
+
+
