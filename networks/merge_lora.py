@@ -31,7 +31,7 @@ def save_to_file(file_name, model, state_dict, dtype):
     torch.save(model, file_name)
 
 
-def merge_to_sd_model(text_encoder, unet, models, ratios, merge_dtype):
+def merge_to_sd_model(text_encoder, unet, models, ratios, ratios_unet, ratios_te, merge_dtype):
   text_encoder.to(merge_dtype)
   unet.to(merge_dtype)
 
@@ -52,8 +52,12 @@ def merge_to_sd_model(text_encoder, unet, models, ratios, merge_dtype):
             lora_name = prefix + '.' + name + '.' + child_name
             lora_name = lora_name.replace('.', '_')
             name_to_module[lora_name] = child_module
-
-  for model, ratio in zip(models, ratios):
+            
+  if ratios_unet is None:
+    ratios_unet = [None] * len(ratios)
+  if ratios_te is None:
+    ratios_te = [None] * len(ratios)
+  for model, ratio, ratio_unet, ratio_te in zip(models, ratios, ratios_unet, ratios_te):
     print(f"loading: {model}")
     lora_sd = load_state_dict(model, merge_dtype)
 
@@ -80,19 +84,25 @@ def merge_to_sd_model(text_encoder, unet, models, ratios, merge_dtype):
 
         # W <- W + U * D
         weight = module.weight
+        if ratio_unet and lora.LoRANetwork.LORA_PREFIX_UNET in key:
+          real_ratio = ratio_unet
+        elif ratio_te and lora.LoRANetwork.LORA_PREFIX_TEXT_ENCODER in key:
+          real_ratio = ratio_te
+        else:
+          real_ratio = ratio
         # print(module_name, down_weight.size(), up_weight.size())
         if len(weight.size()) == 2:
           # linear
-          weight = weight + ratio * (up_weight @ down_weight) * scale
+          weight = weight + real_ratio * (up_weight @ down_weight) * scale
         elif down_weight.size()[2:4] == (1, 1):
           # conv2d 1x1
-          weight = weight + ratio * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)
+          weight = weight + real_ratio * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)
                                      ).unsqueeze(2).unsqueeze(3) * scale
         else:
           # conv2d 3x3
           conved = torch.nn.functional.conv2d(down_weight.permute(1, 0, 2, 3), up_weight).permute(1, 0, 2, 3)
           # print(conved.size(), weight.size(), module.stride, module.padding)
-          weight = weight + ratio * conved * scale
+          weight = weight + real_ratio * conved * scale
 
         module.weight = torch.nn.Parameter(weight)
 
@@ -164,8 +174,15 @@ def merge_lora_models(models, ratios, merge_dtype):
 
 
 def merge(args):
+  if args.ratios is None:
+    assert args.ratios_unet and args.ratios_te, "ratios_unet and ratios_te must be set if ratios is not set"
+    
   assert len(args.models) == len(args.ratios), f"number of models must be equal to number of ratios / モデルの数と重みの数は合わせてください"
-
+  if args.ratios_unet:
+    assert len(args.models) == len(args.ratios_unet), f"number of models must be equal to number of ratios_unet / モデルの数と重みの数は合わせてください"
+  if args.ratios_te:
+    assert len(args.models) == len(args.ratios_te), f"number of models must be equal to number of ratios_te / モデルの数と重みの数は合わせてください"
+    
   def str_to_dtype(p):
     if p == 'float':
       return torch.float
@@ -185,7 +202,7 @@ def merge(args):
 
     text_encoder, vae, unet = model_util.load_models_from_stable_diffusion_checkpoint(args.v2, args.sd_model)
 
-    merge_to_sd_model(text_encoder, unet, args.models, args.ratios, merge_dtype)
+    merge_to_sd_model(text_encoder, unet, args.models, args.ratios, args.ratios_unet, args.ratios_te, merge_dtype)
 
     print(f"saving SD model to: {args.save_to}")
     model_util.save_stable_diffusion_checkpoint(args.v2, args.save_to, text_encoder, unet,
@@ -211,8 +228,10 @@ if __name__ == '__main__':
                       help="destination file name: ckpt or safetensors file / 保存先のファイル名、ckptまたはsafetensors")
   parser.add_argument("--models", type=str, nargs='*',
                       help="LoRA models to merge: ckpt or safetensors file / マージするLoRAモデル、ckptまたはsafetensors")
-  parser.add_argument("--ratios", type=float, nargs='*',
+  parser.add_argument("--ratios", type=float, nargs='*', default=None
                       help="ratios for each model / それぞれのLoRAモデルの比率")
+  parser.add_argument("--ratios_unet", type=float, nargs='*', default=None)
+  parser.add_argument("--ratios_te", type=float, nargs='*', default=None)
 
   args = parser.parse_args()
   merge(args)
