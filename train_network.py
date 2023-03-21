@@ -217,9 +217,11 @@ def train(args):
   if args.gradient_checkpointing:                       # according to TI example in Diffusers, train is required
     unet.train()
     text_encoder.train()
-
     # set top parameter requires_grad = True for gradient checkpointing works
-    text_encoder.module.text_model.embeddings.requires_grad_(True)
+    if type(text_encoder) == DDP:
+      text_encoder.module.text_model.embeddings.requires_grad_(True)
+    else:
+      text_encoder.text_model.embeddings.requires_grad_(True)
   else:
     unet.eval()
     text_encoder.eval()

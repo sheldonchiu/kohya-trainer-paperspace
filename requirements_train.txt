@@ -12,5 +12,7 @@ safetensors==0.2.6
 altair
 easygui
 huggingface-hub
+toml==0.10.2
+voluptuous==0.13.1
 # for kohya_ss library
 .
