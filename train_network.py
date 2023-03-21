@@ -244,18 +244,18 @@ def train(args):
         unet.eval()
         text_encoder.eval()
 
-  # support DistributedDataParallel
-  if type(unet) == DDP:
-    unet_ddp = unet
-    unet = unet_ddp.module
-  if type(text_encoder) == DDP:
-    text_encoder_ddp = text_encoder
-    text_encoder = text_encoder_ddp.module
-  if type(network) == DDP:
-    network_ddp = network
-    network = network_ddp.module
+    # support DistributedDataParallel
+    if type(unet) == DDP:
+      unet_ddp = unet
+      unet = unet_ddp.module
+    if type(text_encoder) == DDP:
+      text_encoder_ddp = text_encoder
+      text_encoder = text_encoder_ddp.module
+    if type(network) == DDP:
+      network_ddp = network
+      network = network_ddp.module
     
-  network.prepare_grad_etc(text_encoder, unet)
+    network.prepare_grad_etc(text_encoder, unet)
 
     if not cache_latents:
         vae.requires_grad_(False)
