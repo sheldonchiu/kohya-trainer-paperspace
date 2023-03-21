@@ -323,7 +323,7 @@ def main(args):
   print("done!")
 
 
-if __name__ == '__main__':
+def setup_parser() -> argparse.ArgumentParser:
   parser = argparse.ArgumentParser()
   parser.add_argument("train_data_dir", type=str,
                       help="directory for train images / 学習画像データのディレクトリ")
@@ -383,6 +383,12 @@ if __name__ == '__main__':
       '--debug_dir', type=str, default=None, help='')  
   parser.add_argument("--skip_existing", action="store_true",
                     help="skip images if npz already exists (both normal and flipped exists if flip_aug is enabled) / npzが既に存在する画像をスキップする（flip_aug有効時は通常、反転の両方が存在する画像をスキップ）")
+
+  return parser
+
+
+if __name__ == '__main__':
+  parser = setup_parser()
 
   args = parser.parse_args()
   main(args)
