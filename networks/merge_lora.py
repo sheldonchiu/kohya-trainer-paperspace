@@ -107,13 +107,19 @@ def merge_to_sd_model(text_encoder, unet, models, ratios, ratios_unet, ratios_te
         module.weight = torch.nn.Parameter(weight)
 
 
-def merge_lora_models(models, ratios, merge_dtype):
+def merge_lora_models(models, ratios, ratios_unet, ratios_te, merge_dtype):
   base_alphas = {}                          # alpha for merged model
   base_dims = {}
 
   merged_sd = {}
-  for model, ratio in zip(models, ratios):
+  
+  if ratios_unet is None:
+    ratios_unet = [None] * len(ratios)
+  if ratios_te is None:
+    ratios_te = [None] * len(ratios)
+  for model, ratio, ratio_unet, ratio_te in zip(models, ratios,  ratios_unet, ratios_te):
     print(f"loading: {model}")
+    
     lora_sd = load_state_dict(model, merge_dtype)
 
     # get alpha and dim
@@ -142,18 +148,25 @@ def merge_lora_models(models, ratios, merge_dtype):
 
     print(f"dim: {list(set(dims.values()))}, alpha: {list(set(alphas.values()))}")
 
+
     # merge
     print(f"merging...")
     for key in lora_sd.keys():
       if 'alpha' in key:
         continue
-
+      if ratio_unet and lora.LoRANetwork.LORA_PREFIX_UNET in key:
+        real_ratio = ratio_unet
+      elif ratio_te and lora.LoRANetwork.LORA_PREFIX_TEXT_ENCODER in key:
+        real_ratio = ratio_te
+      else:
+        real_ratio = ratio
+        
       lora_module_name = key[:key.rfind(".lora_")]
 
       base_alpha = base_alphas[lora_module_name]
       alpha = alphas[lora_module_name]
 
-      scale = math.sqrt(alpha / base_alpha) * ratio
+      scale = math.sqrt(alpha / base_alpha) * real_ratio
 
       if key in merged_sd:
         assert merged_sd[key].size() == lora_sd[key].size(
@@ -208,7 +221,7 @@ def merge(args):
     model_util.save_stable_diffusion_checkpoint(args.v2, args.save_to, text_encoder, unet,
                                                 args.sd_model, 0, 0, save_dtype, vae)
   else:
-    state_dict = merge_lora_models(args.models, args.ratios, merge_dtype)
+    state_dict = merge_lora_models(args.models, args.ratios, args.ratios_unet, args.ratios_te, merge_dtype)
 
     print(f"saving model to: {args.save_to}")
     save_to_file(args.save_to, state_dict, state_dict, save_dtype)
@@ -228,7 +241,7 @@ def setup_parser() -> argparse.ArgumentParser:
                       help="destination file name: ckpt or safetensors file / 保存先のファイル名、ckptまたはsafetensors")
   parser.add_argument("--models", type=str, nargs='*',
                       help="LoRA models to merge: ckpt or safetensors file / マージするLoRAモデル、ckptまたはsafetensors")
-  parser.add_argument("--ratios", type=float, nargs='*', default=None
+  parser.add_argument("--ratios", type=float, nargs='*', default=None,
                       help="ratios for each model / それぞれのLoRAモデルの比率")
   parser.add_argument("--ratios_unet", type=float, nargs='*', default=None)
   parser.add_argument("--ratios_te", type=float, nargs='*', default=None)
