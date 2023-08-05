@@ -497,8 +497,9 @@ class TextualInversionTrainer:
             init_kwargs = {}
             if args.log_tracker_config is not None:
                 init_kwargs = toml.load(args.log_tracker_config)
-            accelerator.init_trackers("textual_inversion" if args.log_tracker_name is None else args.log_tracker_name, init_kwargs=init_kwargs)
-
+            accelerator.init_trackers("textual_inversion" if args.log_tracker_name is None else args.log_tracker_name, 
+                                        config=vars(args) if args.log_with in ['wandb', 'all'] else None, 
+                                        init_kwargs=init_kwargs)
         # function for saving/removing
         def save_model(ckpt_name, embs_list, steps, epoch_no, force_sync_upload=False):
             os.makedirs(args.output_dir, exist_ok=True)

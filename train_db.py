@@ -254,8 +254,9 @@ def train(args):
         init_kwargs = {}
         if args.log_tracker_config is not None:
             init_kwargs = toml.load(args.log_tracker_config)
-        accelerator.init_trackers("dreambooth" if args.log_tracker_name is None else args.log_tracker_name, init_kwargs=init_kwargs)
-
+        accelerator.init_trackers("dreambooth" if args.log_tracker_name is None else args.log_tracker_name, 
+                                    config=vars(args) if args.log_with in ['wandb', 'all'] else None, 
+                                    init_kwargs=init_kwargs)
     loss_list = []
     loss_total = 0.0
     for epoch in range(num_train_epochs):
