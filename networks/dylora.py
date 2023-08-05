@@ -306,8 +306,8 @@ class DyLoRANetwork(torch.nn.Module):
                             lora = module_class(lora_name, child_module, self.multiplier, dim, alpha, unit)
                             loras.append(lora)
             return loras
-
-        self.text_encoder_loras = create_modules(False, text_encoder, DyLoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE)
+        # quick fix, not training text encoder
+        self.text_encoder_loras = create_modules(False, text_encoder[0], DyLoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE)
         print(f"create LoRA for Text Encoder: {len(self.text_encoder_loras)} modules.")
 
         # extend U-Net target modules if conv2d 3x3 is enabled, or load from weights
