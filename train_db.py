@@ -258,6 +258,9 @@ def train(args):
         accelerator.init_trackers("dreambooth" if args.log_tracker_name is None else args.log_tracker_name, 
                                     config=vars(args) if args.log_with in ['wandb', 'all'] else None, 
                                     init_kwargs=init_kwargs)
+        if args.in_json is not None:
+            train_util.upload_meta_to_wandb(accelerator, args)
+            
     loss_list = []
     loss_total = 0.0
     for epoch in range(num_train_epochs):

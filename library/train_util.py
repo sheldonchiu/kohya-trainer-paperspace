@@ -4592,12 +4592,13 @@ class collater_class:
     
 def upload_meta_to_wandb(accelerator, args):
     try:
-        wandb_tracker = accelerator.get_tracker("wandb")
         try:
             import wandb
         except ImportError:  # 事前に一度確認するのでここはエラー出ないはず
             raise ImportError("No wandb / wandb がインストールされていないようです")
-
-        wandb_tracker.save(args.in_json)
+        wandb_tracker = accelerator.get_tracker("wandb")
+        artifact = wandb.Artifact("meta_lat", type="dataset")
+        artifact.add_file(args.in_json)
+        wandb_tracker.run.log_artifact(artifact)
     except:  # wandb 無効時
         pass

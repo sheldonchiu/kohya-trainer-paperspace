@@ -501,6 +501,8 @@ class TextualInversionTrainer:
             accelerator.init_trackers("textual_inversion" if args.log_tracker_name is None else args.log_tracker_name, 
                                         config=vars(args) if args.log_with in ['wandb', 'all'] else None, 
                                         init_kwargs=init_kwargs)
+            if args.in_json is not None:
+                train_util.upload_meta_to_wandb(accelerator, args)
         # function for saving/removing
         def save_model(ckpt_name, embs_list, steps, epoch_no, force_sync_upload=False):
             os.makedirs(args.output_dir, exist_ok=True)
