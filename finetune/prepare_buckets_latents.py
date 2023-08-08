@@ -23,6 +23,78 @@ IMAGE_TRANSFORMS = transforms.Compose(
     ]
 )
 
+def prepare_upscaler(args):
+  from basicsr.archs.rrdbnet_arch import RRDBNet
+  from basicsr.utils.download_util import load_file_from_url
+
+  from realesrgan import RealESRGANer
+  from realesrgan.archs.srvgg_arch import SRVGGNetCompact
+  # determine models according to model names
+  model_name = args.upscale_model_name.split('.')[0]
+  if model_name == 'RealESRGAN_x4plus':  # x4 RRDBNet model
+    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64,
+                    num_block=23, num_grow_ch=32, scale=4)
+    netscale = 4
+    file_url = [
+        'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth']
+  elif model_name == 'RealESRNet_x4plus':  # x4 RRDBNet model
+    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64,
+                    num_block=23, num_grow_ch=32, scale=4)
+    netscale = 4
+    file_url = [
+        'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth']
+  elif model_name == 'RealESRGAN_x4plus_anime_6B':  # x4 RRDBNet model with 6 blocks
+    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64,
+                    num_block=6, num_grow_ch=32, scale=4)
+    netscale = 4
+    file_url = [
+        'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth']
+  elif model_name == 'RealESRGAN_x2plus':  # x2 RRDBNet model
+    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64,
+                    num_block=23, num_grow_ch=32, scale=2)
+    netscale = 2
+    file_url = [
+        'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth']
+  elif model_name == 'realesr-animevideov3':  # x4 VGG-style model (XS size)
+    model = SRVGGNetCompact(
+        num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=4, act_type='prelu')
+    netscale = 4
+    file_url = [
+        'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth']
+  elif model_name == 'realesr-general-x4v3':  # x4 VGG-style model (S size)
+    model = SRVGGNetCompact(
+        num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type='prelu')
+    netscale = 4
+    file_url = [
+        'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth',
+        'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth'
+    ]
+
+  # determine model paths
+  model_path = os.path.join(args.upscale_model_dir, model_name + '.pth')
+  if not os.path.isfile(model_path):
+    for url in file_url:
+      # model_path will be updated
+      model_path = load_file_from_url(
+          url=url, model_dir=args.upscale_model_dir, progress=True, file_name=None)
+
+  # use dni to control the denoise strength
+  dni_weight = None
+  if model_name == 'realesr-general-x4v3' and args.denoise_strength != 1:
+    wdn_model_path = model_path.replace(
+      'realesr-general-x4v3', 'realesr-general-wdn-x4v3')
+    model_path = [model_path, wdn_model_path]
+    dni_weight = [args.denoise_strength, 1 - args.denoise_strength]
+
+  return RealESRGANer(
+    scale=netscale,
+    model_path=model_path,
+    dni_weight=dni_weight,
+    model=model,
+    tile=args.upscale_tile,
+    tile_pad=args.upscale_tile_pad,
+    half=False,
+    gpu_id='0')
 
 def collate_fn_remove_corrupted(batch):
     """Collate function that allows to remove corrupted examples in the
@@ -75,6 +147,8 @@ def main(args):
     vae.eval()
     vae.to(DEVICE, dtype=weight_dtype)
 
+    upscaler = prepare_upscaler(args) if args.upscale else None
+
     # bucketのサイズを計算する
     max_reso = tuple([int(t) for t in args.max_resolution.split(",")])
     assert len(max_reso) == 2, f"illegal resolution (not 'width,height') / 画像サイズに誤りがあります。'幅,高さ'で指定してください: {args.max_resolution}"
@@ -95,7 +169,7 @@ def main(args):
     def process_batch(is_last):
         for bucket in bucket_manager.buckets:
             if (is_last and len(bucket) > 0) or len(bucket) >= args.batch_size:
-                train_util.cache_batch_latents(vae, True, bucket, args.flip_aug, False)
+                train_util.cache_batch_latents(vae, True, bucket, args.flip_aug, False, upscaler=upscaler)
                 bucket.clear()
 
     # 読み込みの高速化のためにDataLoaderを使うオプション
@@ -242,6 +316,30 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="recursively look for training tags in all child folders of train_data_dir / train_data_dirのすべての子フォルダにある学習タグを再帰的に探す",
     )
+    parser.add_argument("--upscale", action="store_true",
+                        help="upscale before resize")
+    parser.add_argument(
+        '--upscale_model_name',
+        type=str,
+        default='RealESRGAN_x4plus_anime_6B',
+        help=('Model names: RealESRGAN_x4plus | RealESRNet_x4plus | RealESRGAN_x4plus_anime_6B | RealESRGAN_x2plus | '
+                'realesr-animevideov3 | realesr-general-x4v3'))
+    parser.add_argument('--upscale_outscale', type=int, default=2,
+                        help='')
+    parser.add_argument(
+        '--upscale_denoise_strength',
+        type=float,
+        default=0.5,
+        help=('Denoise strength. 0 for weak denoise (keep noise), 1 for strong denoise ability. '
+                'Only used for the realesr-general-x4v3 model'))
+    parser.add_argument(
+        '--upscale_model_dir', type=str, default='upscale', help='[Option] Model path.')
+    parser.add_argument('--upscale_tile', type=int, default=512,
+                        help='Tile size, 0 for no tile during testing')
+    parser.add_argument('--upscale_tile_pad', type=int,
+                        default=10, help='Tile padding')
+    parser.add_argument('--upscale_pre_pad', type=int,
+                        default=0, help='Pre padding size at each border')
 
     return parser
 

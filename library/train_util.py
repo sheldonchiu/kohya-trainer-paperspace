@@ -2081,13 +2081,15 @@ def load_image(image_path):
     img = np.array(image, np.uint8)
     return img
 
-
 # 画像を読み込む。戻り値はnumpy.ndarray,(original width, original height),(crop left, crop top, crop right, crop bottom)
 def trim_and_resize_if_required(
-    random_crop: bool, image: Image.Image, reso, resized_size: Tuple[int, int]
+    random_crop: bool, image: Image.Image, reso, resized_size: Tuple[int, int], upscaler=None
 ) -> Tuple[np.ndarray, Tuple[int, int], Tuple[int, int, int, int]]:
     image_height, image_width = image.shape[0:2]
     original_size = (image_width, image_height)  # size before resize
+    
+    if upscaler is not None:
+      image, _ = upscaler.enhance(image, outscale=2)
 
     if image_width != resized_size[0] or image_height != resized_size[1]:
         # リサイズする
@@ -2116,7 +2118,7 @@ def trim_and_resize_if_required(
 
 
 def cache_batch_latents(
-    vae: AutoencoderKL, cache_to_disk: bool, image_infos: List[ImageInfo], flip_aug: bool, random_crop: bool
+    vae: AutoencoderKL, cache_to_disk: bool, image_infos: List[ImageInfo], flip_aug: bool, random_crop: bool, upscaler=None
 ) -> None:
     r"""
     requires image_infos to have: absolute_path, bucket_reso, resized_size, latents_npz
@@ -2131,7 +2133,7 @@ def cache_batch_latents(
     for info in image_infos:
         image = load_image(info.absolute_path) if info.image is None else np.array(info.image, np.uint8)
         # TODO 画像のメタデータが壊れていて、メタデータから割り当てたbucketと実際の画像サイズが一致しない場合があるのでチェック追加要
-        image, original_size, crop_ltrb = trim_and_resize_if_required(random_crop, image, info.bucket_reso, info.resized_size)
+        image, original_size, crop_ltrb = trim_and_resize_if_required(random_crop, image, info.bucket_reso, info.resized_size, upscaler=upscaler)
         image = IMAGE_TRANSFORMS(image)
         images.append(image)
 
