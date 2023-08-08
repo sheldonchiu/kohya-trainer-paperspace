@@ -361,6 +361,9 @@ def train(args):
         accelerator.init_trackers("finetuning" if args.log_tracker_name is None else args.log_tracker_name, 
                                     config=vars(args) if args.log_with in ['wandb', 'all'] else None, 
                                     init_kwargs=init_kwargs)
+        if args.is_json is not None:
+            train_util.upload_meta_to_wandb(accelerator, args)
+        
     for epoch in range(num_train_epochs):
         accelerator.print(f"\nepoch {epoch+1}/{num_train_epochs}")
         current_epoch.value = epoch + 1

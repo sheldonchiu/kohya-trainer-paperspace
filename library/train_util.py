@@ -4589,3 +4589,15 @@ class collater_class:
         dataset.set_current_epoch(self.current_epoch.value)
         dataset.set_current_step(self.current_step.value)
         return examples[0]
+    
+def upload_meta_to_wandb(accelerator, args):
+    try:
+        wandb_tracker = accelerator.get_tracker("wandb")
+        try:
+            import wandb
+        except ImportError:  # 事前に一度確認するのでここはエラー出ないはず
+            raise ImportError("No wandb / wandb がインストールされていないようです")
+
+        wandb_tracker.save(args.in_json)
+    except:  # wandb 無効時
+        pass
