@@ -169,7 +169,7 @@ def main(args):
     def process_batch(is_last):
         for bucket in bucket_manager.buckets:
             if (is_last and len(bucket) > 0) or len(bucket) >= args.batch_size:
-                train_util.cache_batch_latents(vae, True, bucket, args.flip_aug, False, upscaler=upscaler)
+                train_util.cache_batch_latents(vae, True, bucket, args.flip_aug, False, upscaler=upscaler, upscale_enable_reso=args.upscale_enable_reso)
                 bucket.clear()
 
     # 読み込みの高速化のためにDataLoaderを使うオプション
@@ -318,6 +318,8 @@ def setup_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--upscale", action="store_true",
                         help="upscale before resize")
+    parser.add_argument("--upscale_enable_reso", type=int, default=1000*1000,
+                        help="Images with resolution(w*h) below this will upscale before resize, if upsacle is enabled")
     parser.add_argument(
         '--upscale_model_name',
         type=str,
