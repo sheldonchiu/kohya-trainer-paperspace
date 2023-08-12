@@ -800,6 +800,12 @@ class BaseDataset(torch.utils.data.Dataset):
         random.shuffle(self.buckets_indices)
         self.bucket_manager.shuffle()
 
+    def verify_bucket_reso_steps(self, min_steps: int):
+        assert self.bucket_reso_steps is None or self.bucket_reso_steps % min_steps == 0, (
+            f"bucket_reso_steps is {self.bucket_reso_steps}. it must be divisible by {min_steps}.\n"
+            + f"bucket_reso_stepsが{self.bucket_reso_steps}です。{min_steps}で割り切れる必要があります"
+        )
+
     def is_latent_cacheable(self):
         return all([not subset.color_aug and not subset.random_crop for subset in self.subsets])
 
@@ -1831,6 +1837,10 @@ class DatasetGroup(torch.utils.data.ConcatDataset):
         for dataset in self.datasets:
             dataset.set_caching_mode(caching_mode)
 
+    def verify_bucket_reso_steps(self, min_steps: int):
+        for dataset in self.datasets:
+            dataset.verify_bucket_reso_steps(min_steps)
+
     def is_latent_cacheable(self) -> bool:
         return all([dataset.is_latent_cacheable() for dataset in self.datasets])
 
@@ -2019,6 +2029,9 @@ class MinimalDataset(BaseDataset):
         self.bucket_info = {}
         self.is_reg = False
         self.image_dir = "dummy"  # for metadata
+
+    def verify_bucket_reso_steps(self, min_steps: int):
+        pass
 
     def is_latent_cacheable(self) -> bool:
         return False
@@ -2983,11 +2996,11 @@ def verify_training_args(args: argparse.Namespace):
         )
 
     # noise_offset, perlin_noise, multires_noise_iterations cannot be enabled at the same time
-    # Listを使って数えてもいいけど並べてしまえ
-    if args.noise_offset is not None and args.multires_noise_iterations is not None:
-        raise ValueError(
-            "noise_offset and multires_noise_iterations cannot be enabled at the same time / noise_offsetとmultires_noise_iterationsを同時に有効にできません"
-        )
+    # # Listを使って数えてもいいけど並べてしまえ
+    # if args.noise_offset is not None and args.multires_noise_iterations is not None:
+    #     raise ValueError(
+    #         "noise_offset and multires_noise_iterations cannot be enabled at the same time / noise_offsetとmultires_noise_iterationsを同時に有効にできません"
+    #     )
     # if args.noise_offset is not None and args.perlin_noise is not None:
     #     raise ValueError("noise_offset and perlin_noise cannot be enabled at the same time / noise_offsetとperlin_noiseは同時に有効にできません")
     # if args.perlin_noise is not None and args.multires_noise_iterations is not None:
@@ -3888,7 +3901,16 @@ def pool_workaround(
 
     # input_ids: b*n,77
     # find index for EOS token
-    eos_token_index = torch.where(input_ids == eos_token_id)[1]
+
+    # Following code is not working if one of the input_ids has multiple EOS tokens (very odd case)
+    # eos_token_index = torch.where(input_ids == eos_token_id)[1]
+    # eos_token_index = eos_token_index.to(device=last_hidden_state.device)
+
+    # Create a mask where the EOS tokens are
+    eos_token_mask = (input_ids == eos_token_id).int()
+
+    # Use argmax to find the last index of the EOS token for each element in the batch
+    eos_token_index = torch.argmax(eos_token_mask, dim=1)  # this will be 0 if there is no EOS token, it's fine
     eos_token_index = eos_token_index.to(device=last_hidden_state.device)
 
     # get hidden states for EOS token
@@ -4261,7 +4283,7 @@ def get_noise_noisy_latents_and_timesteps(args, noise_scheduler, latents):
     noise = torch.randn_like(latents, device=latents.device)
     if args.noise_offset:
         noise = custom_train_functions.apply_noise_offset(latents, noise, args.noise_offset, args.adaptive_noise_scale)
-    elif args.multires_noise_iterations:
+    if args.multires_noise_iterations:
         noise = custom_train_functions.pyramid_noise_like(
             noise, latents.device, args.multires_noise_iterations, args.multires_noise_discount
         )
